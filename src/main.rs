@@ -16,43 +16,22 @@ mod utils {
 
     type Lines<'a> = Vec<(usize, &'a str)>;
 
+    #[derive(PartialEq, Debug, Clone)]
     pub enum ChangeType {
         Removed,
         Added,
     }
 
+    /// A wrapper for `Vec<Line>`
     pub struct LinesDiff {
-        pub removed: Vec<usize>,
-        pub added: Vec<usize>,
+        pub lines: Vec<Line>,
     }
 
+    #[derive(PartialEq, Debug, Clone)]
     pub struct Line {
         pub number: usize,
+        pub length: usize,
         pub change: ChangeType,
-    }
-
-    impl LinesDiff {
-        fn to_vec(&self) -> Vec<Line> {
-            let mut vector = Vec::new();
-
-            self.removed.iter().for_each(|line_num| {
-                vector.push(Line {
-                    number: *line_num,
-                    change: ChangeType::Removed,
-                });
-            });
-
-            self.added.iter().for_each(|line_num| {
-                vector.push(Line {
-                    number: *line_num,
-                    change: ChangeType::Added,
-                });
-            });
-
-            vector.sort_by(|a, b| a.number.cmp(&b.number));
-
-            vector
-        }
     }
 
     impl fmt::Display for LinesDiff {
@@ -60,7 +39,7 @@ mod utils {
             write!(
                 f,
                 "{}",
-                self.to_vec()
+                self.lines
                     .iter()
                     .map(|item| format!(
                         "{}{}\n",
@@ -86,7 +65,7 @@ mod utils {
         let original: Lines = original_string.lines().enumerate().collect();
         let mut new: Lines = new_string.lines().enumerate().collect();
 
-        let mut removed: Vec<usize> = Vec::new();
+        let mut changes: Vec<Line> = Vec::new();
 
         for (original_index, original_line) in original {
             let mut line_found = false;
@@ -101,42 +80,81 @@ mod utils {
             }
 
             if !line_found {
-                removed.push(original_index)
+                changes.push(Line {
+                    number: original_index,
+                    length: 1,
+                    change: ChangeType::Removed,
+                })
             }
         }
 
-        let mut added: Vec<usize> = Vec::new();
-
         for (new_index, _new_line) in new {
-            added.push(new_index)
+            changes.push(Line {
+                number: new_index,
+                length: 1,
+                change: ChangeType::Added,
+            })
         }
 
-        LinesDiff { removed, added }
+        for (index, line_change) in changes.clone().iter().enumerate() {
+            if index < changes.len() - 1 {
+                for other_index in index + 1..changes.len() {
+                    if line_change.number + other_index - index == changes[other_index].number {
+                        changes[index].length += 1;
+                        changes.remove(other_index);
+                    } else {
+                        continue;
+                    }
+                }
+            }
+        }
+
+        changes.sort_by(|a, b| a.number.cmp(&b.number));
+
+        LinesDiff { lines: changes }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::utils;
+    use crate::utils::{self, ChangeType, Line};
 
-    type TestPair = (
-        (&'static str, &'static str),
-        (&'static [usize], &'static [usize]),
-    );
+    type TestPair = ((&'static str, &'static str), &'static [Line]);
 
     const TEST_PAIRS: &'static [TestPair] = &[(
         (
             &"first line\nsecond line\nthird line",
             &"new first line\nsecond line\nsomething changed here\nlast line",
         ),
-        (&[0, 2], &[0, 2, 3]),
+        &[
+            Line {
+                number: 0,
+                length: 1,
+                change: ChangeType::Removed,
+            },
+            Line {
+                number: 0,
+                length: 1,
+                change: ChangeType::Added,
+            },
+            Line {
+                number: 2,
+                length: 1,
+                change: ChangeType::Removed,
+            },
+            Line {
+                number: 2,
+                length: 2,
+                change: ChangeType::Added,
+            },
+        ],
     )];
 
     #[test]
     fn test_with_pairs() {
         for pair in TEST_PAIRS {
             let diff = utils::diff(pair.0 .0, pair.0 .1);
-            assert_eq!((diff.removed.as_slice(), diff.added.as_slice()), pair.1)
+            assert_eq!(diff.lines.iter().as_slice(), pair.1)
         }
     }
 }
