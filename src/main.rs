@@ -1,3 +1,16 @@
+use std::fs;
+
+use clap::Parser;
+
+#[derive(Parser)]
+#[command(author, version, about)]
+struct Args {
+    /// The original file
+    original: String,
+    /// The edited file
+    new: String,
+}
+
 mod utils {
     type Lines<'a> = Vec<(usize, &'a str)>;
 
@@ -71,4 +84,18 @@ mod tests {
     }
 }
 
-fn main() {}
+fn main() {
+    let args = Args::parse();
+
+    let original_content = fs::read_to_string(args.original)
+        .expect("Couldn't open original file. Check if it exists or if the path supplied is valid");
+    let new_content = fs::read_to_string(args.new)
+        .expect("Couldn't open new file. Check if it exists or if the path supplied is valid");
+
+    let diff = utils::diff(original_content, new_content);
+
+    println!(
+        "Lines removed: {:?}\nLines added: {:?} \n",
+        diff.removed, diff.added
+    )
+}
