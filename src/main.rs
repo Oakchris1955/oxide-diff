@@ -45,4 +45,30 @@ mod utils {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use crate::utils;
+
+    type TestPair = (
+        (&'static str, &'static str),
+        (&'static [usize], &'static [usize]),
+    );
+
+    const TEST_PAIRS: &'static [TestPair] = &[(
+        (
+            &"first line\nsecond line\nthird line",
+            &"new first line\nsecond line\nsomething changed here\nlast line",
+        ),
+        (&[0, 2], &[0, 2, 3]),
+    )];
+
+    #[test]
+    fn test_with_pairs() {
+        for pair in TEST_PAIRS {
+            let diff = utils::diff(pair.0 .0, pair.0 .1);
+            assert_eq!((diff.removed.as_slice(), diff.added.as_slice()), pair.1)
+        }
+    }
+}
+
 fn main() {}
