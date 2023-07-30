@@ -12,11 +12,68 @@ struct Args {
 }
 
 mod utils {
+    use std::fmt;
+
     type Lines<'a> = Vec<(usize, &'a str)>;
+
+    pub enum ChangeType {
+        Removed,
+        Added,
+    }
 
     pub struct LinesDiff {
         pub removed: Vec<usize>,
         pub added: Vec<usize>,
+    }
+
+    pub struct Line {
+        pub number: usize,
+        pub change: ChangeType,
+    }
+
+    impl LinesDiff {
+        fn to_vec(&self) -> Vec<Line> {
+            let mut vector = Vec::new();
+
+            self.removed.iter().for_each(|line_num| {
+                vector.push(Line {
+                    number: *line_num,
+                    change: ChangeType::Removed,
+                });
+            });
+
+            self.added.iter().for_each(|line_num| {
+                vector.push(Line {
+                    number: *line_num,
+                    change: ChangeType::Added,
+                });
+            });
+
+            vector.sort_by(|a, b| a.number.cmp(&b.number));
+
+            vector
+        }
+    }
+
+    impl fmt::Display for LinesDiff {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(
+                f,
+                "{}",
+                self.to_vec()
+                    .iter()
+                    .map(|item| format!(
+                        "{}{}\n",
+                        match item.change {
+                            ChangeType::Added => "+",
+                            ChangeType::Removed => "-",
+                        },
+                        item.number
+                    ))
+                    .collect::<String>()
+                    .trim_end()
+            )
+        }
     }
 
     pub fn diff<S>(original_string: S, new_string: S) -> LinesDiff
@@ -94,8 +151,5 @@ fn main() {
 
     let diff = utils::diff(original_content, new_content);
 
-    println!(
-        "Lines removed: {:?}\nLines added: {:?} \n",
-        diff.removed, diff.added
-    )
+    println!("{}", diff)
 }
