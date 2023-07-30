@@ -22,6 +22,19 @@ mod utils {
         Added,
     }
 
+    impl fmt::Display for ChangeType {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(
+                f,
+                "{}",
+                match self {
+                    Self::Added => "+",
+                    Self::Removed => "-",
+                }
+            )
+        }
+    }
+
     /// A wrapper for `Vec<Line>`
     pub struct LinesDiff {
         pub lines: Vec<Line>,
@@ -41,14 +54,7 @@ mod utils {
                 "{}",
                 self.lines
                     .iter()
-                    .map(|item| format!(
-                        "{}{}\n",
-                        match item.change {
-                            ChangeType::Added => "+",
-                            ChangeType::Removed => "-",
-                        },
-                        item.number
-                    ))
+                    .map(|item| format!("{}{}\n", item.change, item.number))
                     .collect::<String>()
                     .trim_end()
             )
