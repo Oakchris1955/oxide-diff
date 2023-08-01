@@ -212,7 +212,7 @@ mod utils {
 
 #[cfg(test)]
 mod tests {
-    use crate::utils::{self, ChangeType, LCSItem, Line};
+    use crate::utils::*;
 
     type TestPair = (
         (&'static str, &'static str),
@@ -250,9 +250,9 @@ mod tests {
     )];
 
     #[test]
-    fn test_with_pairs() {
+    fn check_diff() {
         for pair in TEST_PAIRS {
-            let diff = utils::diff(pair.0 .0, pair.0 .1);
+            let diff = diff(pair.0 .0, pair.0 .1);
             assert_eq!(diff.lines.as_slice(), pair.1);
             assert_eq!(diff.lcs_list.as_slice(), pair.2);
         }
