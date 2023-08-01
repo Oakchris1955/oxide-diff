@@ -41,25 +41,27 @@ mod utils {
         pub length: usize,
     }
 
-    /// A wrapper for `Vec<Line>`
+    /// A wrapper for `Vec<Changes>`
     pub struct LinesDiff {
-        pub lines: Vec<Line>,
+        pub line_changes: Vec<LineChange>,
         pub lcs_list: Vec<LCSItem>,
+        pub old_text: String,
+        pub new_text: String,
     }
 
     #[derive(PartialEq, Eq, Debug, Clone)]
-    pub struct Line {
+    pub struct LineChange {
         pub next_lcs: usize,
         pub length: usize,
-        pub change: ChangeType,
+        pub change_type: ChangeType,
     }
 
-    impl Ord for Line {
+    impl Ord for LineChange {
         fn cmp(&self, other: &Self) -> Ordering {
             if self.next_lcs == other.next_lcs {
-                if self.change == other.change {
+                if self.change_type == other.change_type {
                     Ordering::Equal
-                } else if self.change == ChangeType::Removed {
+                } else if self.change_type == ChangeType::Removed {
                     Ordering::Less
                 } else {
                     Ordering::Greater
@@ -70,12 +72,12 @@ mod utils {
         }
     }
 
-    impl PartialOrd for Line {
+    impl PartialOrd for LineChange {
         fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
             Some(if self.next_lcs == other.next_lcs {
-                if self.change == other.change {
+                if self.change_type == other.change_type {
                     Ordering::Equal
-                } else if self.change == ChangeType::Removed {
+                } else if self.change_type == ChangeType::Removed {
                     Ordering::Less
                 } else {
                     Ordering::Greater
@@ -90,11 +92,11 @@ mod utils {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             let mut output = String::new();
 
-            for item in self.lines.iter() {
+            for change in self.line_changes.iter() {
                 let lcs_item =
                     self.lcs_list
                         .iter()
-                        .take(item.next_lcs)
+                        .take(change.next_lcs)
                         .last()
                         .unwrap_or(&LCSItem {
                             original_line: 0,
@@ -102,11 +104,11 @@ mod utils {
                             length: 0,
                         });
 
-                for index in 0..item.length {
+                for index in 0..change.length {
                     output.push_str(&format!(
                         "{}{}\n",
-                        item.change,
-                        (match item.change {
+                        change.change_type,
+                        (match change.change_type {
                             ChangeType::Added => lcs_item.new_line,
                             ChangeType::Removed => lcs_item.original_line,
                         }) + index
@@ -129,8 +131,8 @@ mod utils {
         let mut begin_index = 0;
 
         let mut lcs_list: Vec<LCSItem> = Vec::new();
-        let mut deletions: Vec<Line> = Vec::new();
-        let mut additions: Vec<Line> = Vec::new();
+        let mut deletions: Vec<LineChange> = Vec::new();
+        let mut additions: Vec<LineChange> = Vec::new();
 
         for (original_index, original_line) in original_string.lines().enumerate() {
             let mut is_removed = true;
@@ -156,21 +158,21 @@ mod utils {
                             length: 1,
                         })
                     }
-                    additions.push(Line {
+                    additions.push(LineChange {
                         next_lcs: lcs_list.len() - 1,
                         length: additions
                             .iter()
                             .rev()
                             .take(2)
                             .last()
-                            .unwrap_or(&Line {
+                            .unwrap_or(&LineChange {
                                 next_lcs: 0,
                                 length: 0,
-                                change: ChangeType::Added,
+                                change_type: ChangeType::Added,
                             })
                             .length
                             + 1,
-                        change: ChangeType::Added,
+                        change_type: ChangeType::Added,
                     });
 
                     begin_index = new_index;
@@ -184,28 +186,30 @@ mod utils {
                     if last_change.next_lcs == lcs_list.len() {
                         last_change.length += 1;
                     } else {
-                        deletions.push(Line {
+                        deletions.push(LineChange {
                             next_lcs: lcs_list.len(),
                             length: 1,
-                            change: ChangeType::Removed,
+                            change_type: ChangeType::Removed,
                         })
                     }
                 } else {
-                    deletions.push(Line {
+                    deletions.push(LineChange {
                         next_lcs: lcs_list.len(),
                         length: 1,
-                        change: ChangeType::Removed,
+                        change_type: ChangeType::Removed,
                     })
                 }
             }
         }
 
-        let mut changes = [deletions, additions].concat();
-        changes.sort();
+        let mut line_changes = [deletions, additions].concat();
+        line_changes.sort();
 
         LinesDiff {
-            lines: changes,
+            line_changes,
             lcs_list,
+            old_text: original_string,
+            new_text: new_string,
         }
     }
 }
@@ -216,7 +220,7 @@ mod tests {
 
     type TestPair = (
         (&'static str, &'static str),
-        &'static [Line],
+        &'static [LineChange],
         &'static [LCSItem],
     );
 
@@ -226,20 +230,20 @@ mod tests {
             &"new first line\nsecond line\nsomething changed here\nlast line",
         ),
         &[
-            Line {
+            LineChange {
                 next_lcs: 0,
                 length: 1,
-                change: ChangeType::Removed,
+                change_type: ChangeType::Removed,
             },
-            Line {
+            LineChange {
                 next_lcs: 0,
                 length: 1,
-                change: ChangeType::Added,
+                change_type: ChangeType::Added,
             },
-            Line {
+            LineChange {
                 next_lcs: 1,
                 length: 1,
-                change: ChangeType::Removed,
+                change_type: ChangeType::Removed,
             },
         ],
         &[LCSItem {
@@ -253,7 +257,7 @@ mod tests {
     fn check_diff() {
         for pair in TEST_PAIRS {
             let diff = diff(pair.0 .0, pair.0 .1);
-            assert_eq!(diff.lines.as_slice(), pair.1);
+            assert_eq!(diff.line_changes.as_slice(), pair.1);
             assert_eq!(diff.lcs_list.as_slice(), pair.2);
         }
     }
