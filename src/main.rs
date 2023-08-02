@@ -93,26 +93,23 @@ mod utils {
             let mut output = String::new();
 
             for change in self.line_changes.iter() {
-                let lcs_item =
-                    self.lcs_list
-                        .iter()
-                        .take(change.next_lcs)
-                        .last()
-                        .unwrap_or(&LCSItem {
-                            original_line: 0,
-                            new_line: 0,
-                            length: 0,
-                        });
+                let default_item = LCSItem {
+                    original_line: self.old_text.lines().count() + 1,
+                    new_line: self.new_text.lines().count() + 1,
+                    length: 0,
+                };
 
-                for index in 0..change.length {
+                let lcs_item = self.lcs_list.get(change.next_lcs).unwrap_or(&default_item);
+
+                for index in (0..change.length).rev() {
                     output.push_str(&format!(
                         "{}{}\n",
                         change.change_type,
                         (match change.change_type {
                             ChangeType::Added => lcs_item.new_line,
                             ChangeType::Removed => lcs_item.original_line,
-                        }) + index
-                            + 1
+                        }) - index
+                            - 1
                     ))
                 }
             }
@@ -139,11 +136,13 @@ mod utils {
 
             for (new_index, new_line) in new_string.lines().enumerate().skip(begin_index) {
                 if original_line == new_line {
+                    let mut new_addition = true;
                     if let Some(last_item) = lcs_list.last() {
-                        if last_item.original_line + last_item.length == original_index
-                            && last_item.new_line + last_item.length == new_index
+                        if last_item.original_line + last_item.length - 1 == original_index
+                            && last_item.new_line + last_item.length - 1 == new_index
                         {
                             lcs_list.last_mut().unwrap().length += 1;
+                            new_addition = false;
                         } else {
                             lcs_list.push(LCSItem {
                                 original_line: original_index + 1,
@@ -158,22 +157,26 @@ mod utils {
                             length: 1,
                         })
                     }
-                    additions.push(LineChange {
-                        next_lcs: lcs_list.len() - 1,
-                        length: additions
-                            .iter()
-                            .rev()
-                            .take(2)
-                            .last()
-                            .unwrap_or(&LineChange {
-                                next_lcs: 0,
-                                length: 0,
+                    if new_addition {
+                        let mut last_two_lcs = lcs_list.iter().rev().take(2);
+                        last_two_lcs.next();
+                        let before_last_lcs = last_two_lcs.next().unwrap_or(&LCSItem {
+                            original_line: 0,
+                            new_line: 0,
+                            length: 1,
+                        });
+
+                        let addition_length =
+                            new_index - (before_last_lcs.new_line + before_last_lcs.length - 1);
+
+                        if addition_length != 0 {
+                            additions.push(LineChange {
+                                next_lcs: lcs_list.len() - 1,
+                                length: addition_length,
                                 change_type: ChangeType::Added,
-                            })
-                            .length
-                            + 1,
-                        change_type: ChangeType::Added,
-                    });
+                            });
+                        }
+                    }
 
                     begin_index = new_index;
                     is_removed = false;
@@ -199,6 +202,19 @@ mod utils {
                         change_type: ChangeType::Removed,
                     })
                 }
+            }
+        }
+
+        if let Some(last_lcs) = lcs_list.last() {
+            let last_lcs_line = last_lcs.new_line + last_lcs.length - 1;
+            let new_lines = new_string.lines().count();
+
+            if last_lcs_line != new_lines {
+                additions.push(LineChange {
+                    next_lcs: lcs_list.len() + 1,
+                    length: new_lines - last_lcs_line,
+                    change_type: ChangeType::Added,
+                })
             }
         }
 
@@ -244,6 +260,11 @@ mod tests {
                 next_lcs: 1,
                 length: 1,
                 change_type: ChangeType::Removed,
+            },
+            LineChange {
+                next_lcs: 2,
+                length: 2,
+                change_type: ChangeType::Added,
             },
         ],
         &[LCSItem {
