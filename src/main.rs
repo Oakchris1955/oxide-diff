@@ -131,18 +131,17 @@ mod utils {
         let mut deletions: Vec<LineChange> = Vec::new();
         let mut additions: Vec<LineChange> = Vec::new();
 
-        for (original_index, original_line) in original_string.lines().enumerate() {
-            let mut is_removed = true;
-
+        'outer: for (original_index, original_line) in original_string.lines().enumerate() {
             for (new_index, new_line) in new_string.lines().enumerate().skip(begin_index) {
                 if original_line == new_line {
-                    let mut new_addition = true;
+                    begin_index = new_index;
+
                     if let Some(last_item) = lcs_list.last() {
                         if last_item.original_line + last_item.length - 1 == original_index
                             && last_item.new_line + last_item.length - 1 == new_index
                         {
                             lcs_list.last_mut().unwrap().length += 1;
-                            new_addition = false;
+                            continue 'outer;
                         } else {
                             lcs_list.push(LCSItem {
                                 original_line: original_index + 1,
@@ -157,44 +156,33 @@ mod utils {
                             length: 1,
                         })
                     }
-                    if new_addition {
-                        let mut last_two_lcs = lcs_list.iter().rev().take(2);
-                        last_two_lcs.next();
-                        let before_last_lcs = last_two_lcs.next().unwrap_or(&LCSItem {
-                            original_line: 0,
-                            new_line: 0,
-                            length: 1,
+
+                    let mut last_two_lcs = lcs_list.iter().rev().take(2);
+                    last_two_lcs.next();
+                    let before_last_lcs = last_two_lcs.next().unwrap_or(&LCSItem {
+                        original_line: 0,
+                        new_line: 0,
+                        length: 1,
+                    });
+
+                    let addition_length =
+                        new_index - (before_last_lcs.new_line + before_last_lcs.length - 1);
+
+                    if addition_length != 0 {
+                        additions.push(LineChange {
+                            next_lcs: lcs_list.len() - 1,
+                            length: addition_length,
+                            change_type: ChangeType::Added,
                         });
-
-                        let addition_length =
-                            new_index - (before_last_lcs.new_line + before_last_lcs.length - 1);
-
-                        if addition_length != 0 {
-                            additions.push(LineChange {
-                                next_lcs: lcs_list.len() - 1,
-                                length: addition_length,
-                                change_type: ChangeType::Added,
-                            });
-                        }
                     }
 
-                    begin_index = new_index;
-                    is_removed = false;
-                    break;
+                    continue 'outer;
                 }
             }
 
-            if is_removed {
-                if let Some(last_change) = deletions.last_mut() {
-                    if last_change.next_lcs == lcs_list.len() {
-                        last_change.length += 1;
-                    } else {
-                        deletions.push(LineChange {
-                            next_lcs: lcs_list.len(),
-                            length: 1,
-                            change_type: ChangeType::Removed,
-                        })
-                    }
+            if let Some(last_change) = deletions.last_mut() {
+                if last_change.next_lcs == lcs_list.len() {
+                    last_change.length += 1;
                 } else {
                     deletions.push(LineChange {
                         next_lcs: lcs_list.len(),
@@ -202,6 +190,12 @@ mod utils {
                         change_type: ChangeType::Removed,
                     })
                 }
+            } else {
+                deletions.push(LineChange {
+                    next_lcs: lcs_list.len(),
+                    length: 1,
+                    change_type: ChangeType::Removed,
+                })
             }
         }
 
