@@ -205,7 +205,7 @@ mod utils {
 
             if last_lcs_line != new_lines {
                 additions.push(LineChange {
-                    next_lcs: lcs_list.len() + 1,
+                    next_lcs: lcs_list.len(),
                     length: new_lines - last_lcs_line,
                     change_type: ChangeType::Added,
                 })
@@ -256,7 +256,7 @@ mod tests {
                 change_type: ChangeType::Removed,
             },
             LineChange {
-                next_lcs: 2,
+                next_lcs: 1,
                 length: 2,
                 change_type: ChangeType::Added,
             },
