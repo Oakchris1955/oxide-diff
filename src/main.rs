@@ -1,6 +1,7 @@
 use std::fs;
 
-use clap::Parser;
+use clap::error::ErrorKind;
+use clap::{CommandFactory, Parser};
 
 pub enum OutputFormat {
     Normal,
@@ -415,10 +416,21 @@ mod tests {
 fn main() {
     let args = Args::parse();
 
-    let original_content = fs::read_to_string(args.original)
-        .expect("Couldn't open original file. Check if it exists or if the path supplied is valid");
-    let new_content = fs::read_to_string(args.new)
-        .expect("Couldn't open new file. Check if it exists or if the path supplied is valid");
+    let file_error_handler = |error| {
+        let mut cmd = Args::command();
+        cmd.error(
+            ErrorKind::InvalidValue,
+            format!(
+                "Couldn't open new file. Check if it exists or if the path supplied is valid\n\
+                Error message: \"{}\"",
+                error
+            ),
+        )
+        .exit();
+    };
+
+    let original_content = fs::read_to_string(args.original).unwrap_or_else(file_error_handler);
+    let new_content = fs::read_to_string(args.new).unwrap_or_else(file_error_handler);
 
     let output_format_options = &args.output_format;
     let normal = output_format_options.normal;
