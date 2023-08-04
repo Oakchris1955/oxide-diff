@@ -54,30 +54,29 @@ mod utils {
     }
 
     #[derive(PartialEq, Debug)]
-    pub struct LCSItem {
+    pub struct Subsequence {
         pub original_line: usize,
         pub new_line: usize,
         pub length: usize,
     }
 
-    /// A wrapper for `Vec<Changes>`
-    pub struct LinesDiff {
-        pub line_changes: Vec<LineChange>,
-        pub lcs_list: Vec<LCSItem>,
+    pub struct LineChanges {
+        pub changes: Vec<LineChange>,
+        pub subsequence_list: Vec<Subsequence>,
         pub old_text: String,
         pub new_text: String,
     }
 
     #[derive(PartialEq, Eq, Debug, Clone)]
     pub struct LineChange {
-        pub next_lcs: usize,
+        pub next_subsequence: usize,
         pub length: usize,
         pub change_type: ChangeType,
     }
 
     impl Ord for LineChange {
         fn cmp(&self, other: &Self) -> Ordering {
-            if self.next_lcs == other.next_lcs {
+            if self.next_subsequence == other.next_subsequence {
                 if self.change_type == other.change_type {
                     Ordering::Equal
                 } else if self.change_type == ChangeType::Removed {
@@ -86,14 +85,14 @@ mod utils {
                     Ordering::Greater
                 }
             } else {
-                self.next_lcs.cmp(&other.next_lcs)
+                self.next_subsequence.cmp(&other.next_subsequence)
             }
         }
     }
 
     impl PartialOrd for LineChange {
         fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-            Some(if self.next_lcs == other.next_lcs {
+            Some(if self.next_subsequence == other.next_subsequence {
                 if self.change_type == other.change_type {
                     Ordering::Equal
                 } else if self.change_type == ChangeType::Removed {
@@ -102,31 +101,34 @@ mod utils {
                     Ordering::Greater
                 }
             } else {
-                self.next_lcs.cmp(&other.next_lcs)
+                self.next_subsequence.cmp(&other.next_subsequence)
             })
         }
     }
 
-    impl fmt::Debug for LinesDiff {
+    impl fmt::Debug for LineChanges {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             let mut output = String::new();
 
-            for change in self.line_changes.iter() {
-                let default_item = LCSItem {
+            for change in self.changes.iter() {
+                let default_subsequence = Subsequence {
                     original_line: self.old_text.lines().count() + 1,
                     new_line: self.new_text.lines().count() + 1,
                     length: 0,
                 };
 
-                let lcs_item = self.lcs_list.get(change.next_lcs).unwrap_or(&default_item);
+                let subsequence = self
+                    .subsequence_list
+                    .get(change.next_subsequence)
+                    .unwrap_or(&default_subsequence);
 
                 for index in (0..change.length).rev() {
                     output.push_str(&format!(
                         "{:?}{}\n",
                         change.change_type,
                         (match change.change_type {
-                            ChangeType::Added => lcs_item.new_line,
-                            ChangeType::Removed => lcs_item.original_line,
+                            ChangeType::Added => subsequence.new_line,
+                            ChangeType::Removed => subsequence.original_line,
                         }) - index
                             - 1
                     ))
@@ -137,53 +139,54 @@ mod utils {
         }
     }
 
-    impl LinesDiff {
+    impl LineChanges {
         pub fn output_format(&self, format: OutputFormat) -> String {
             let mut output = String::new();
 
             match format {
                 OutputFormat::Normal => {
                     let mut skip_next = false;
-                    for (index, line) in self.line_changes.iter().enumerate() {
+                    for (index, change) in self.changes.iter().enumerate() {
                         if skip_next {
                             skip_next = false;
                             continue;
                         }
-                        if let Some(next_line) = self.line_changes.get(index + 1) {
-                            if line.next_lcs == next_line.next_lcs {
-                                let begin_lines = if line.next_lcs == 0 {
+                        if let Some(next_change) = self.changes.get(index + 1) {
+                            if change.next_subsequence == next_change.next_subsequence {
+                                let begin_lines = if change.next_subsequence == 0 {
                                     (1, 1)
                                 } else {
-                                    let next_lcs = &self.lcs_list[line.next_lcs - 1];
+                                    let next_subsequence =
+                                        &self.subsequence_list[change.next_subsequence - 1];
                                     (
-                                        next_lcs.original_line + next_lcs.length,
-                                        next_lcs.new_line + next_lcs.length,
+                                        next_subsequence.original_line + next_subsequence.length,
+                                        next_subsequence.new_line + next_subsequence.length,
                                     )
                                 };
                                 output.push_str(&format!(
                                     "{}{}c{}{}\n{}---\n{}",
                                     begin_lines.0,
-                                    if line.length != 1 {
-                                        format!(",{}", begin_lines.0 + line.length - 1)
+                                    if change.length != 1 {
+                                        format!(",{}", begin_lines.0 + change.length - 1)
                                     } else {
                                         String::new()
                                     },
                                     begin_lines.1,
-                                    if next_line.length != 1 {
-                                        format!(",{}", begin_lines.1 + next_line.length - 1)
+                                    if next_change.length != 1 {
+                                        format!(",{}", begin_lines.1 + next_change.length - 1)
                                     } else {
                                         String::new()
                                     },
                                     self.old_text
                                         .lines()
                                         .skip(begin_lines.0 - 1)
-                                        .take(line.length)
+                                        .take(change.length)
                                         .map(|line_text| format!("< {}\n", line_text))
                                         .collect::<String>(),
                                     self.new_text
                                         .lines()
                                         .skip(begin_lines.1 - 1)
-                                        .take(next_line.length)
+                                        .take(next_change.length)
                                         .map(|line_text| format!("> {}\n", line_text))
                                         .collect::<String>()
                                 ));
@@ -191,31 +194,32 @@ mod utils {
                                 continue;
                             }
                         }
-                        let (old_line, new_line) = if line.next_lcs == 0 {
+                        let (old_line, new_line) = if change.next_subsequence == 0 {
                             (1, 1)
                         } else {
-                            let next_lcs = &self.lcs_list[line.next_lcs - 1];
+                            let next_subsequence =
+                                &self.subsequence_list[change.next_subsequence - 1];
                             (
-                                next_lcs.original_line + next_lcs.length,
-                                next_lcs.new_line + next_lcs.length,
+                                next_subsequence.original_line + next_subsequence.length,
+                                next_subsequence.new_line + next_subsequence.length,
                             )
                         };
 
-                        output.push_str(&match line.change_type {
+                        output.push_str(&match change.change_type {
                             ChangeType::Added => {
                                 format!(
                                     "{}a{}{}\n{}",
                                     old_line - 1,
                                     new_line,
-                                    if line.length != 1 {
-                                        format!(",{}", new_line + line.length - 1)
+                                    if change.length != 1 {
+                                        format!(",{}", new_line + change.length - 1)
                                     } else {
                                         String::new()
                                     },
                                     self.new_text
                                         .lines()
                                         .skip(new_line - 1)
-                                        .take(line.length)
+                                        .take(change.length)
                                         .map(|line| format!("> {}\n", line))
                                         .collect::<String>()
                                 )
@@ -224,8 +228,8 @@ mod utils {
                                 format!(
                                     "{}{}d{}\n{}",
                                     old_line,
-                                    if line.length != 1 {
-                                        format!(",{}", old_line + line.length - 1)
+                                    if change.length != 1 {
+                                        format!(",{}", old_line + change.length - 1)
                                     } else {
                                         String::new()
                                     },
@@ -233,7 +237,7 @@ mod utils {
                                     self.old_text
                                         .lines()
                                         .skip(old_line - 1)
-                                        .take(line.length)
+                                        .take(change.length)
                                         .map(|line| format!("> {}\n", line))
                                         .collect::<String>()
                                 )
@@ -247,7 +251,7 @@ mod utils {
         }
     }
 
-    pub fn diff<S>(original_string: S, new_string: S) -> LinesDiff
+    pub fn diff<S>(original_string: S, new_string: S) -> LineChanges
     where
         S: Into<String>,
     {
@@ -256,7 +260,7 @@ mod utils {
 
         let mut begin_index = 0;
 
-        let mut lcs_list: Vec<LCSItem> = Vec::new();
+        let mut subsequence_list: Vec<Subsequence> = Vec::new();
         let mut deletions: Vec<LineChange> = Vec::new();
         let mut additions: Vec<LineChange> = Vec::new();
 
@@ -265,41 +269,42 @@ mod utils {
                 if original_line == new_line {
                     begin_index = new_index;
 
-                    if let Some(last_item) = lcs_list.last() {
+                    if let Some(last_item) = subsequence_list.last() {
                         if last_item.original_line + last_item.length - 1 == original_index
                             && last_item.new_line + last_item.length - 1 == new_index
                         {
-                            lcs_list.last_mut().unwrap().length += 1;
+                            subsequence_list.last_mut().unwrap().length += 1;
                             continue 'outer;
                         } else {
-                            lcs_list.push(LCSItem {
+                            subsequence_list.push(Subsequence {
                                 original_line: original_index + 1,
                                 new_line: new_index + 1,
                                 length: 1,
                             })
                         }
                     } else {
-                        lcs_list.push(LCSItem {
+                        subsequence_list.push(Subsequence {
                             original_line: original_index + 1,
                             new_line: new_index + 1,
                             length: 1,
                         })
                     }
 
-                    let mut last_two_lcs = lcs_list.iter().rev().take(2);
-                    last_two_lcs.next();
-                    let before_last_lcs = last_two_lcs.next().unwrap_or(&LCSItem {
-                        original_line: 0,
-                        new_line: 0,
-                        length: 1,
-                    });
+                    let mut last_two_subsequences = subsequence_list.iter().rev().take(2);
+                    last_two_subsequences.next();
+                    let before_last_subsequence =
+                        last_two_subsequences.next().unwrap_or(&Subsequence {
+                            original_line: 0,
+                            new_line: 0,
+                            length: 1,
+                        });
 
-                    let addition_length =
-                        new_index - (before_last_lcs.new_line + before_last_lcs.length - 1);
+                    let addition_length = new_index
+                        - (before_last_subsequence.new_line + before_last_subsequence.length - 1);
 
                     if addition_length != 0 {
                         additions.push(LineChange {
-                            next_lcs: lcs_list.len() - 1,
+                            next_subsequence: subsequence_list.len() - 1,
                             length: addition_length,
                             change_type: ChangeType::Added,
                         });
@@ -310,43 +315,43 @@ mod utils {
             }
 
             if let Some(last_change) = deletions.last_mut() {
-                if last_change.next_lcs == lcs_list.len() {
+                if last_change.next_subsequence == subsequence_list.len() {
                     last_change.length += 1;
                 } else {
                     deletions.push(LineChange {
-                        next_lcs: lcs_list.len(),
+                        next_subsequence: subsequence_list.len(),
                         length: 1,
                         change_type: ChangeType::Removed,
                     })
                 }
             } else {
                 deletions.push(LineChange {
-                    next_lcs: lcs_list.len(),
+                    next_subsequence: subsequence_list.len(),
                     length: 1,
                     change_type: ChangeType::Removed,
                 })
             }
         }
 
-        if let Some(last_lcs) = lcs_list.last() {
-            let last_lcs_line = last_lcs.new_line + last_lcs.length - 1;
+        if let Some(last_subsequence) = subsequence_list.last() {
+            let last_subsequence_line = last_subsequence.new_line + last_subsequence.length - 1;
             let new_lines = new_string.lines().count();
 
-            if last_lcs_line != new_lines {
+            if last_subsequence_line != new_lines {
                 additions.push(LineChange {
-                    next_lcs: lcs_list.len(),
-                    length: new_lines - last_lcs_line,
+                    next_subsequence: subsequence_list.len(),
+                    length: new_lines - last_subsequence_line,
                     change_type: ChangeType::Added,
                 })
             }
         }
 
-        let mut line_changes = [deletions, additions].concat();
-        line_changes.sort();
+        let mut changes = [deletions, additions].concat();
+        changes.sort();
 
-        LinesDiff {
-            line_changes,
-            lcs_list,
+        LineChanges {
+            changes,
+            subsequence_list,
             old_text: original_string,
             new_text: new_string,
         }
@@ -360,7 +365,7 @@ mod tests {
     type TestPair = (
         (&'static str, &'static str),
         &'static [LineChange],
-        &'static [LCSItem],
+        &'static [Subsequence],
     );
 
     const TEST_PAIRS: &'static [TestPair] = &[(
@@ -370,27 +375,27 @@ mod tests {
         ),
         &[
             LineChange {
-                next_lcs: 0,
+                next_subsequence: 0,
                 length: 1,
                 change_type: ChangeType::Removed,
             },
             LineChange {
-                next_lcs: 0,
+                next_subsequence: 0,
                 length: 1,
                 change_type: ChangeType::Added,
             },
             LineChange {
-                next_lcs: 1,
+                next_subsequence: 1,
                 length: 1,
                 change_type: ChangeType::Removed,
             },
             LineChange {
-                next_lcs: 1,
+                next_subsequence: 1,
                 length: 2,
                 change_type: ChangeType::Added,
             },
         ],
-        &[LCSItem {
+        &[Subsequence {
             original_line: 2,
             new_line: 2,
             length: 1,
@@ -401,8 +406,8 @@ mod tests {
     fn check_diff() {
         for pair in TEST_PAIRS {
             let diff = diff(pair.0 .0, pair.0 .1);
-            assert_eq!(diff.line_changes.as_slice(), pair.1);
-            assert_eq!(diff.lcs_list.as_slice(), pair.2);
+            assert_eq!(diff.changes.as_slice(), pair.1);
+            assert_eq!(diff.subsequence_list.as_slice(), pair.2);
         }
     }
 }
