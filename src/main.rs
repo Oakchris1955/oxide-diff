@@ -34,13 +34,13 @@ mod utils {
 
     use crate::OutputFormat;
 
-    #[derive(PartialEq, Eq, Debug, Clone)]
+    #[derive(PartialEq, Eq, Clone)]
     pub enum ChangeType {
         Removed,
         Added,
     }
 
-    impl fmt::Display for ChangeType {
+    impl fmt::Debug for ChangeType {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             write!(
                 f,
@@ -107,7 +107,7 @@ mod utils {
         }
     }
 
-    impl fmt::Display for LinesDiff {
+    impl fmt::Debug for LinesDiff {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             let mut output = String::new();
 
@@ -122,7 +122,7 @@ mod utils {
 
                 for index in (0..change.length).rev() {
                     output.push_str(&format!(
-                        "{}{}\n",
+                        "{:?}{}\n",
                         change.change_type,
                         (match change.change_type {
                             ChangeType::Added => lcs_item.new_line,
