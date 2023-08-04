@@ -2,9 +2,26 @@ use std::fs;
 
 use clap::Parser;
 
+pub enum OutputFormat {
+    Normal,
+}
+
+const DEFAULT_OUTPUT_FORMAT: OutputFormat = OutputFormat::Normal;
+
+#[derive(clap::Args)]
+#[group(multiple = false)]
+struct OutputFormatOptions {
+    /// Normal output format
+    #[arg(long)]
+    normal: bool,
+}
+
 #[derive(Parser)]
 #[command(author, version, about)]
 struct Args {
+    #[command(flatten)]
+    output_format: OutputFormatOptions,
+
     /// The original file
     original: String,
     /// The edited file
@@ -14,6 +31,8 @@ struct Args {
 mod utils {
     use std::cmp::Ordering;
     use std::fmt;
+
+    use crate::OutputFormat;
 
     #[derive(PartialEq, Eq, Debug, Clone)]
     pub enum ChangeType {
@@ -115,6 +134,116 @@ mod utils {
             }
 
             write!(f, "{}", output.trim_end())
+        }
+    }
+
+    impl LinesDiff {
+        pub fn output_format(&self, format: OutputFormat) -> String {
+            let mut output = String::new();
+
+            match format {
+                OutputFormat::Normal => {
+                    let mut skip_next = false;
+                    for (index, line) in self.line_changes.iter().enumerate() {
+                        if skip_next {
+                            skip_next = false;
+                            continue;
+                        }
+                        if let Some(next_line) = self.line_changes.get(index + 1) {
+                            if line.next_lcs == next_line.next_lcs {
+                                let begin_lines = if line.next_lcs == 0 {
+                                    (1, 1)
+                                } else {
+                                    let next_lcs = &self.lcs_list[line.next_lcs - 1];
+                                    (
+                                        next_lcs.original_line + next_lcs.length,
+                                        next_lcs.new_line + next_lcs.length,
+                                    )
+                                };
+                                output.push_str(&format!(
+                                    "{}{}c{}{}\n{}---\n{}",
+                                    begin_lines.0,
+                                    if line.length != 1 {
+                                        format!(",{}", begin_lines.0 + line.length - 1)
+                                    } else {
+                                        String::new()
+                                    },
+                                    begin_lines.1,
+                                    if next_line.length != 1 {
+                                        format!(",{}", begin_lines.1 + next_line.length - 1)
+                                    } else {
+                                        String::new()
+                                    },
+                                    self.old_text
+                                        .lines()
+                                        .skip(begin_lines.0 - 1)
+                                        .take(line.length)
+                                        .map(|line_text| format!("< {}\n", line_text))
+                                        .collect::<String>(),
+                                    self.new_text
+                                        .lines()
+                                        .skip(begin_lines.1 - 1)
+                                        .take(next_line.length)
+                                        .map(|line_text| format!("> {}\n", line_text))
+                                        .collect::<String>()
+                                ));
+                                skip_next = true;
+                                continue;
+                            }
+                        }
+                        let (old_line, new_line) = if line.next_lcs == 0 {
+                            (1, 1)
+                        } else {
+                            let next_lcs = &self.lcs_list[line.next_lcs - 1];
+                            (
+                                next_lcs.original_line + next_lcs.length,
+                                next_lcs.new_line + next_lcs.length,
+                            )
+                        };
+
+                        output.push_str(&match line.change_type {
+                            ChangeType::Added => {
+                                format!(
+                                    "{}a{}{}\n{}",
+                                    old_line - 1,
+                                    new_line,
+                                    if line.length != 1 {
+                                        format!(",{}", new_line + line.length - 1)
+                                    } else {
+                                        String::new()
+                                    },
+                                    self.new_text
+                                        .lines()
+                                        .skip(new_line - 1)
+                                        .take(line.length)
+                                        .map(|line| format!("> {}\n", line))
+                                        .collect::<String>()
+                                )
+                            }
+                            ChangeType::Removed => {
+                                format!(
+                                    "{}{}d{}\n{}",
+                                    old_line,
+                                    if line.length != 1 {
+                                        format!(",{}", old_line + line.length - 1)
+                                    } else {
+                                        String::new()
+                                    },
+                                    new_line - 1,
+                                    self.old_text
+                                        .lines()
+                                        .skip(old_line - 1)
+                                        .take(line.length)
+                                        .map(|line| format!("> {}\n", line))
+                                        .collect::<String>()
+                                )
+                            }
+                        })
+                    }
+                }
+            }
+
+            output
         }
     }
 
@@ -286,7 +415,15 @@ fn main() {
     let new_content = fs::read_to_string(args.new)
         .expect("Couldn't open new file. Check if it exists or if the path supplied is valid");
 
+    let output_format_options = &args.output_format;
+    let normal = output_format_options.normal;
+
+    let output_format = match normal {
+        true => OutputFormat::Normal,
+        _ => DEFAULT_OUTPUT_FORMAT,
+    };
+
     let diff = utils::diff(original_content, new_content);
 
-    println!("{}", diff)
+    print!("{}", diff.output_format(output_format))
 }
