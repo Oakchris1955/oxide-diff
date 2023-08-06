@@ -5,6 +5,7 @@ use clap::{CommandFactory, Parser};
 
 pub enum OutputFormat {
     Normal,
+    Brief,
 }
 
 const DEFAULT_OUTPUT_FORMAT: OutputFormat = OutputFormat::Normal;
@@ -12,14 +13,18 @@ const DEFAULT_OUTPUT_FORMAT: OutputFormat = OutputFormat::Normal;
 #[derive(clap::Args)]
 #[group(multiple = false)]
 struct OutputFormatOptions {
-    /// Normal output format
+    /// output a normal diff (the default)
     #[arg(long)]
     normal: bool,
+
+    /// report only when files differ
+    #[arg(long, short = 'q')]
+    brief: bool,
 }
 
 #[derive(Parser)]
 #[command(author, version, about)]
-struct Args {
+pub struct Args {
     #[command(flatten)]
     output_format: OutputFormatOptions,
 
@@ -27,13 +32,17 @@ struct Args {
     original: String,
     /// The edited file
     new: String,
+
+    /// report when two files are the same
+    #[arg(long, short = 's')]
+    report_identical_files: bool,
 }
 
 mod utils {
     use std::cmp::Ordering;
     use std::fmt;
 
-    use crate::OutputFormat;
+    use crate::{Args, OutputFormat};
 
     #[derive(PartialEq, Eq, Clone)]
     pub enum ChangeType {
@@ -141,7 +150,7 @@ mod utils {
     }
 
     impl LineChanges {
-        pub fn output_format(&self, format: OutputFormat) -> String {
+        pub fn output_format(&self, format: OutputFormat, args: Args) -> String {
             let mut output = String::new();
 
             match format {
@@ -246,6 +255,21 @@ mod utils {
                         })
                     }
                 }
+                OutputFormat::Brief => {
+                    if !self.changes.is_empty() {
+                        output.push_str(&format!(
+                            "Files {} and {} differ\n",
+                            args.original, args.new
+                        ))
+                    }
+                }
+            }
+
+            if args.report_identical_files && self.changes.is_empty() {
+                output.push_str(&format!(
+                    "Files {} and {} are identical\n",
+                    args.original, args.new
+                ))
             }
 
             output
@@ -429,18 +453,20 @@ fn main() {
         .exit();
     };
 
-    let original_content = fs::read_to_string(args.original).unwrap_or_else(file_error_handler);
-    let new_content = fs::read_to_string(args.new).unwrap_or_else(file_error_handler);
+    let original_content = fs::read_to_string(&args.original).unwrap_or_else(file_error_handler);
+    let new_content = fs::read_to_string(&args.new).unwrap_or_else(file_error_handler);
 
     let output_format_options = &args.output_format;
-    let normal = output_format_options.normal;
+    let (normal, brief) = (output_format_options.normal, output_format_options.brief);
 
-    let output_format = match normal {
-        true => OutputFormat::Normal,
-        _ => DEFAULT_OUTPUT_FORMAT,
+    let output_format = match (normal, brief) {
+        (true, false) => OutputFormat::Normal,
+        (false, true) => OutputFormat::Brief,
+        (false, false) => DEFAULT_OUTPUT_FORMAT,
+        _ => unreachable!(),
     };
 
     let diff = utils::diff(original_content, new_content);
 
-    print!("{}", diff.output_format(output_format))
+    print!("{}", diff.output_format(output_format, args))
 }
