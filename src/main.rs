@@ -369,6 +369,12 @@ mod utils {
                     change_type: ChangeType::Added,
                 })
             }
+        } else {
+            additions.push(LineChange {
+                next_subsequence: 0,
+                length: new_string.lines().count(),
+                change_type: ChangeType::Added,
+            })
         }
 
         let mut changes = [deletions, additions].concat();
