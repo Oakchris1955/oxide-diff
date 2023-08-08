@@ -1,4 +1,9 @@
-use std::fs;
+use std::collections::HashMap;
+use std::{
+    ffi, fmt, fs,
+    io::{self, Read},
+    path,
+};
 
 use clap::error::ErrorKind;
 use clap::{CommandFactory, Parser};
@@ -9,6 +14,45 @@ pub enum OutputFormat {
 }
 
 const DEFAULT_OUTPUT_FORMAT: OutputFormat = OutputFormat::Normal;
+
+enum PathType {
+    File(fs::File),
+    Dir(fs::ReadDir),
+}
+
+#[derive(PartialEq, Eq, Clone, Copy)]
+enum BlankPathType {
+    File,
+    Dir,
+    SymLink,
+}
+
+impl fmt::Display for BlankPathType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::File => "file",
+                Self::Dir => "directory",
+                Self::SymLink => "symlink",
+            }
+        )
+    }
+}
+
+impl PartialEq for PathType {
+    fn eq(&self, other: &Self) -> bool {
+        fn to_bool(input: &PathType) -> bool {
+            match input {
+                PathType::File(_) => false,
+                PathType::Dir(_) => true,
+            }
+        }
+
+        to_bool(self) == to_bool(other)
+    }
+}
 
 #[derive(clap::Args)]
 #[group(multiple = false)]
@@ -150,8 +194,20 @@ mod utils {
     }
 
     impl LineChanges {
-        pub fn output_format(&self, format: OutputFormat, args: Args) -> String {
+        pub fn output_format<S>(
+            &self,
+            format: &OutputFormat,
+            original_path: S,
+            new_path: S,
+            args: &Args,
+        ) -> String
+        where
+            S: Into<String>,
+        {
             let mut output = String::new();
+
+            let original_path: String = original_path.into();
+            let new_path: String = new_path.into();
 
             match format {
                 OutputFormat::Normal => {
@@ -259,7 +315,7 @@ mod utils {
                     if !self.changes.is_empty() {
                         output.push_str(&format!(
                             "Files {} and {} differ\n",
-                            args.original, args.new
+                            original_path, new_path
                         ))
                     }
                 }
@@ -268,7 +324,7 @@ mod utils {
             if args.report_identical_files && self.changes.is_empty() {
                 output.push_str(&format!(
                     "Files {} and {} are identical\n",
-                    args.original, args.new
+                    original_path, new_path
                 ))
             }
 
@@ -389,6 +445,29 @@ mod utils {
     }
 }
 
+fn parse_path<S>(path: S) -> Result<(path::PathBuf, PathType), io::Error>
+where
+    S: Into<String>,
+{
+    let path: String = path.into();
+
+    let metadata = fs::metadata(&path)?;
+
+    if metadata.is_file() {
+        Ok((
+            path::PathBuf::from(path.clone()),
+            PathType::File(fs::File::open(path)?),
+        ))
+    } else if metadata.is_dir() {
+        Ok((
+            path::PathBuf::from(path.clone()),
+            PathType::Dir(fs::read_dir(path)?),
+        ))
+    } else {
+        unreachable!()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::utils::*;
@@ -446,21 +525,36 @@ mod tests {
 fn main() {
     let args = Args::parse();
 
-    let file_error_handler = |error| {
+    fn file_error_handler<E, S>(error: E, filename: S) -> !
+    where
+        E: ToString,
+        S: ToString,
+    {
+        custom_file_error_handler(
+            error,
+            format!(
+                "Couldn't open file {}. Check if it exists or if the path supplied is valid\n",
+                filename.to_string()
+            ),
+        )
+    }
+
+    fn custom_file_error_handler<E, S>(error: E, message: S) -> !
+    where
+        E: ToString,
+        S: ToString,
+    {
         let mut cmd = Args::command();
         cmd.error(
-            ErrorKind::InvalidValue,
+            ErrorKind::Io,
             format!(
-                "Couldn't open new file. Check if it exists or if the path supplied is valid\n\
-                Error message: \"{}\"",
-                error
+                "{}\nError message: \"{}\"",
+                message.to_string(),
+                error.to_string()
             ),
         )
         .exit();
-    };
-
-    let original_content = fs::read_to_string(&args.original).unwrap_or_else(file_error_handler);
-    let new_content = fs::read_to_string(&args.new).unwrap_or_else(file_error_handler);
+    }
 
     let output_format_options = &args.output_format;
     let (normal, brief) = (output_format_options.normal, output_format_options.brief);
@@ -472,7 +566,207 @@ fn main() {
         _ => unreachable!(),
     };
 
-    let diff = utils::diff(original_content, new_content);
+    let (original, new) = (parse_path(&args.original), parse_path(&args.new));
 
-    print!("{}", diff.output_format(output_format, args))
+    match (original, new) {
+        (Ok(original), Ok(new)) => match (original, new) {
+            ((dir_path, PathType::Dir(mut dir)), (file_path, PathType::File(file)))
+            | ((file_path, PathType::File(file)), (dir_path, PathType::Dir(mut dir))) => {
+                if let Some(dir_equivalent) = dir.find_map(|entry| match entry {
+                    Ok(entry) => Some((
+                        entry.path(),
+                        fs::File::open(entry.path()).unwrap_or_else(|err| {
+                            custom_file_error_handler(
+                                err,
+                                format!(
+                                    "Couldn't find file {} in directory {}",
+                                    file_path.display(),
+                                    dir_path.display()
+                                ),
+                            )
+                        }),
+                    )),
+                    Err(err) => custom_file_error_handler(err, String::new()),
+                }) {
+                    let mut files = [(file_path, file), dir_equivalent];
+                    if files[0].0.display().to_string() != args.original {
+                        files.reverse()
+                    }
+
+                    let mut original_string = String::new();
+                    let mut new_string = String::new();
+
+                    files[0]
+                        .1
+                        .read_to_string(&mut original_string)
+                        .unwrap_or_else(|err| file_error_handler(err, files[0].0.display()));
+                    files[1]
+                        .1
+                        .read_to_string(&mut new_string)
+                        .unwrap_or_else(|err| file_error_handler(err, files[1].0.display()));
+
+                    let diff = utils::diff(original_string, new_string);
+
+                    print!(
+                        "{}",
+                        diff.output_format(&output_format, &args.original, &args.new, &args)
+                    )
+                }
+            }
+            ((_, PathType::Dir(original)), (_, PathType::Dir(new))) => {
+                let mut new_hashmap: HashMap<ffi::OsString, fs::DirEntry> = HashMap::new();
+                new.for_each(|entry| {
+                    let entry = entry.unwrap_or_else(|err| custom_file_error_handler(err, ""));
+                    new_hashmap.insert(entry.file_name(), entry);
+                });
+
+                for entry in original {
+                    let entry = entry.unwrap_or_else(|err| custom_file_error_handler(err, ""));
+
+                    if let Some(other_entry) = new_hashmap.remove(&entry.file_name()) {
+                        fn parse_filetype(file_type: fs::FileType) -> BlankPathType {
+                            if file_type.is_file() {
+                                BlankPathType::File
+                            } else if file_type.is_dir() {
+                                BlankPathType::Dir
+                            } else if file_type.is_symlink() {
+                                BlankPathType::SymLink
+                            } else {
+                                unreachable!()
+                            }
+                        }
+
+                        let entry_type = parse_filetype(entry.file_type().unwrap_or_else(|err| {
+                            custom_file_error_handler(err, format!("Unexpected IO error"))
+                        }));
+
+                        let other_entry_type =
+                            parse_filetype(other_entry.file_type().unwrap_or_else(|err| {
+                                custom_file_error_handler(err, format!("Unexpected IO error"))
+                            }));
+
+                        match (entry_type, other_entry_type) {
+                            (BlankPathType::File, BlankPathType::File) => {
+                                let mut original_string = String::new();
+                                let mut new_string = String::new();
+
+                                let mut original_file = fs::File::open(entry.path())
+                                    .unwrap_or_else(|err| {
+                                        custom_file_error_handler(
+                                            err,
+                                            format!("Unexpected IO error"),
+                                        )
+                                    });
+                                let mut new_file = fs::File::open(other_entry.path())
+                                    .unwrap_or_else(|err| {
+                                        custom_file_error_handler(
+                                            err,
+                                            format!("Unexpected IO error"),
+                                        )
+                                    });
+
+                                original_file
+                                    .read_to_string(&mut original_string)
+                                    .unwrap_or_else(|err| {
+                                        custom_file_error_handler(
+                                            err,
+                                            format!("Unexpected IO error"),
+                                        )
+                                    });
+                                new_file
+                                    .read_to_string(&mut new_string)
+                                    .unwrap_or_else(|err| {
+                                        custom_file_error_handler(
+                                            err,
+                                            format!("Unexpected IO error"),
+                                        )
+                                    });
+
+                                let diff = utils::diff(original_string, new_string);
+                                if !diff.changes.is_empty() {
+                                    print!(
+                                        "diff {} {}\n{}",
+                                        entry.path().display(),
+                                        other_entry.path().display(),
+                                        diff.output_format(
+                                            &output_format,
+                                            entry.path().display().to_string(),
+                                            other_entry.path().display().to_string(),
+                                            &args
+                                        )
+                                    )
+                                }
+                            }
+                            (BlankPathType::Dir, BlankPathType::Dir) => println!(
+                                "Common subdirectories: {} and {}",
+                                entry.path().display(),
+                                other_entry.path().display()
+                            ),
+                            (BlankPathType::SymLink, BlankPathType::SymLink) => println!(
+                                "Common symlinks: {} and {}",
+                                entry.path().display(),
+                                other_entry.path().display()
+                            ),
+                            (_, _) => {
+                                println!(
+                                    "{} is a {} while {} is a {}",
+                                    entry.path().display(),
+                                    entry_type,
+                                    other_entry.path().display(),
+                                    other_entry_type
+                                )
+                            }
+                        }
+                    } else {
+                        println!(
+                            "Only in {}: {}",
+                            &args.original,
+                            entry.file_name().to_string_lossy()
+                        )
+                    }
+                }
+
+                for entry in new_hashmap {
+                    println!("Only in {}: {}", &args.new, entry.0.to_string_lossy())
+                }
+            }
+            ((_, PathType::File(mut original)), (_, PathType::File(mut new))) => {
+                let mut original_string = String::new();
+                let mut new_string = String::new();
+
+                original
+                    .read_to_string(&mut original_string)
+                    .unwrap_or_else(|err| {
+                        custom_file_error_handler(err, format!("Unexpected IO error"))
+                    });
+                new.read_to_string(&mut new_string).unwrap_or_else(|err| {
+                    custom_file_error_handler(err, format!("Unexpected IO error"))
+                });
+
+                let diff = utils::diff(original_string, new_string);
+
+                print!(
+                    "{}",
+                    diff.output_format(&output_format, &args.original, &args.new, &args)
+                )
+            }
+        },
+        (Err(err), Ok(_)) => file_error_handler(err, args.original),
+        (Ok(_), Err(err)) => file_error_handler(err, args.new),
+        (Err(err_original), Err(err_new)) => {
+            let mut cmd = Args::command();
+            cmd.error(
+                ErrorKind::InvalidValue,
+                format!(
+                    "Couldn't open files {} and {}. Check if they exist or if the file paths supplied are valid\n\
+                    First error message: \"{}\"\nSecond error message \"{}\"",
+                    args.original,
+                    args.new,
+                    err_original,
+                    err_new
+                ),
+            )
+            .exit();
+        }
+    }
 }
