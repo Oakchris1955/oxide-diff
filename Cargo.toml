@@ -6,5 +6,16 @@ description = "A simple diff utility written in Rust"
 edition = "2021"
 
 
+[profile.release]
+strip = true
+opt-level = "z"
+lto = true
+codegen-units = 1
+
+[profile.release-abort]
+inherits = "release"
+panic = "abort"
+
+
 [dependencies]
 clap = { version = "4.3.19", features = ["derive"] }
