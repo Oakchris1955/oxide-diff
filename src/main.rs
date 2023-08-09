@@ -202,12 +202,12 @@ mod utils {
             args: &Args,
         ) -> String
         where
-            S: Into<String>,
+            S: ToString,
         {
             let mut output = String::new();
 
-            let original_path: String = original_path.into();
-            let new_path: String = new_path.into();
+            let original_path = original_path.to_string();
+            let new_path = new_path.to_string();
 
             match format {
                 OutputFormat::Normal => {
@@ -326,10 +326,10 @@ mod utils {
 
     pub fn diff<S>(original_string: S, new_string: S) -> LineChanges
     where
-        S: Into<String>,
+        S: ToString,
     {
-        let original_string: String = original_string.into();
-        let new_string: String = new_string.into();
+        let original_string = original_string.to_string();
+        let new_string = new_string.to_string();
 
         let mut begin_index = 0;
 
@@ -429,13 +429,13 @@ mod utils {
 
     fn prepend_to_lines<S, P>(input: S, prefix: P, skip: usize, length: usize) -> String
     where
-        S: Into<String>,
-        P: Into<String>,
+        S: ToString,
+        P: ToString,
     {
-        let prefix: String = prefix.into();
+        let prefix = prefix.to_string();
 
         input
-            .into()
+            .to_string()
             .lines()
             .skip(skip)
             .take(length)
@@ -446,9 +446,9 @@ mod utils {
 
 fn parse_path<S>(path: S) -> Result<(path::PathBuf, PathType), io::Error>
 where
-    S: Into<String>,
+    S: ToString,
 {
-    let path: String = path.into();
+    let path = path.to_string();
 
     let metadata = fs::metadata(&path)?;
 
@@ -524,9 +524,8 @@ mod tests {
 fn main() {
     let args = Args::parse();
 
-    fn file_error_handler<E, S>(error: E, filename: S) -> !
+    fn file_error_handler<S>(error: io::Error, filename: S) -> !
     where
-        E: ToString,
         S: ToString,
     {
         custom_file_error_handler(
@@ -538,9 +537,8 @@ fn main() {
         )
     }
 
-    fn custom_file_error_handler<E, S>(error: E, message: S) -> !
+    fn custom_file_error_handler<S>(error: io::Error, message: S) -> !
     where
-        E: ToString,
         S: ToString,
     {
         let mut cmd = Args::command();
