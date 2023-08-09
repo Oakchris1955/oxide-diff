@@ -1,4 +1,4 @@
-# Oxide diff utility
+# Oxide diff
 
 A `diff` utility I wrote in ~10 days.
 
