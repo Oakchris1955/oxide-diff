@@ -217,49 +217,7 @@ mod utils {
                             skip_next = false;
                             continue;
                         }
-                        if let Some(next_change) = self.changes.get(index + 1) {
-                            if change.next_subsequence == next_change.next_subsequence {
-                                let begin_lines = if change.next_subsequence == 0 {
-                                    (1, 1)
-                                } else {
-                                    let next_subsequence =
-                                        &self.subsequence_list[change.next_subsequence - 1];
-                                    (
-                                        next_subsequence.original_line + next_subsequence.length,
-                                        next_subsequence.new_line + next_subsequence.length,
-                                    )
-                                };
-                                output.push_str(&format!(
-                                    "{}{}c{}{}\n{}---\n{}",
-                                    begin_lines.0,
-                                    if change.length != 1 {
-                                        format!(",{}", begin_lines.0 + change.length - 1)
-                                    } else {
-                                        String::new()
-                                    },
-                                    begin_lines.1,
-                                    if next_change.length != 1 {
-                                        format!(",{}", begin_lines.1 + next_change.length - 1)
-                                    } else {
-                                        String::new()
-                                    },
-                                    self.old_text
-                                        .lines()
-                                        .skip(begin_lines.0 - 1)
-                                        .take(change.length)
-                                        .map(|line_text| format!("< {}\n", line_text))
-                                        .collect::<String>(),
-                                    self.new_text
-                                        .lines()
-                                        .skip(begin_lines.1 - 1)
-                                        .take(next_change.length)
-                                        .map(|line_text| format!("> {}\n", line_text))
-                                        .collect::<String>()
-                                ));
-                                skip_next = true;
-                                continue;
-                            }
-                        }
+
                         let (old_line, new_line) = if change.next_subsequence == 0 {
                             (1, 1)
                         } else {
@@ -270,6 +228,40 @@ mod utils {
                                 next_subsequence.new_line + next_subsequence.length,
                             )
                         };
+
+                        if let Some(next_change) = self.changes.get(index + 1) {
+                            if change.next_subsequence == next_change.next_subsequence {
+                                output.push_str(&format!(
+                                    "{}{}c{}{}\n{}---\n{}",
+                                    old_line,
+                                    if change.length != 1 {
+                                        format!(",{}", old_line + change.length - 1)
+                                    } else {
+                                        String::new()
+                                    },
+                                    new_line,
+                                    if next_change.length != 1 {
+                                        format!(",{}", new_line + next_change.length - 1)
+                                    } else {
+                                        String::new()
+                                    },
+                                    prepend_to_lines(
+                                        &self.old_text,
+                                        "< ",
+                                        old_line - 1,
+                                        change.length
+                                    ),
+                                    prepend_to_lines(
+                                        &self.new_text,
+                                        "> ",
+                                        new_line - 1,
+                                        next_change.length
+                                    )
+                                ));
+                                skip_next = true;
+                                continue;
+                            }
+                        }
 
                         output.push_str(&match change.change_type {
                             ChangeType::Added => {
@@ -282,12 +274,12 @@ mod utils {
                                     } else {
                                         String::new()
                                     },
-                                    self.new_text
-                                        .lines()
-                                        .skip(new_line - 1)
-                                        .take(change.length)
-                                        .map(|line| format!("> {}\n", line))
-                                        .collect::<String>()
+                                    prepend_to_lines(
+                                        &self.new_text,
+                                        "> ",
+                                        new_line - 1,
+                                        change.length
+                                    )
                                 )
                             }
                             ChangeType::Removed => {
@@ -300,12 +292,12 @@ mod utils {
                                         String::new()
                                     },
                                     new_line - 1,
-                                    self.old_text
-                                        .lines()
-                                        .skip(old_line - 1)
-                                        .take(change.length)
-                                        .map(|line| format!("< {}\n", line))
-                                        .collect::<String>()
+                                    prepend_to_lines(
+                                        &self.old_text,
+                                        "< ",
+                                        old_line - 1,
+                                        change.length
+                                    )
                                 )
                             }
                         })
@@ -356,23 +348,18 @@ mod utils {
                         {
                             subsequence_list.last_mut().unwrap().length += 1;
                             continue 'outer;
-                        } else {
-                            subsequence_list.push(Subsequence {
-                                original_line: original_index + 1,
-                                new_line: new_index + 1,
-                                length: 1,
-                            })
                         }
-                    } else {
-                        subsequence_list.push(Subsequence {
-                            original_line: original_index + 1,
-                            new_line: new_index + 1,
-                            length: 1,
-                        })
                     }
+
+                    subsequence_list.push(Subsequence {
+                        original_line: original_index + 1,
+                        new_line: new_index + 1,
+                        length: 1,
+                    });
 
                     let mut last_two_subsequences = subsequence_list.iter().rev().take(2);
                     last_two_subsequences.next();
+
                     let before_last_subsequence =
                         last_two_subsequences.next().unwrap_or(&Subsequence {
                             original_line: 0,
@@ -398,37 +385,33 @@ mod utils {
             if let Some(last_change) = deletions.last_mut() {
                 if last_change.next_subsequence == subsequence_list.len() {
                     last_change.length += 1;
-                } else {
-                    deletions.push(LineChange {
-                        next_subsequence: subsequence_list.len(),
-                        length: 1,
-                        change_type: ChangeType::Removed,
-                    })
+                    continue;
                 }
-            } else {
-                deletions.push(LineChange {
-                    next_subsequence: subsequence_list.len(),
-                    length: 1,
-                    change_type: ChangeType::Removed,
-                })
             }
+
+            deletions.push(LineChange {
+                next_subsequence: subsequence_list.len(),
+                length: 1,
+                change_type: ChangeType::Removed,
+            })
         }
+
+        let new_lines_count = new_string.lines().count();
 
         if let Some(last_subsequence) = subsequence_list.last() {
             let last_subsequence_line = last_subsequence.new_line + last_subsequence.length - 1;
-            let new_lines = new_string.lines().count();
 
-            if last_subsequence_line != new_lines {
+            if last_subsequence_line != new_lines_count {
                 additions.push(LineChange {
                     next_subsequence: subsequence_list.len(),
-                    length: new_lines - last_subsequence_line,
+                    length: new_lines_count - last_subsequence_line,
                     change_type: ChangeType::Added,
                 })
             }
         } else {
             additions.push(LineChange {
                 next_subsequence: 0,
-                length: new_string.lines().count(),
+                length: new_lines_count,
                 change_type: ChangeType::Added,
             })
         }
@@ -442,6 +425,22 @@ mod utils {
             old_text: original_string,
             new_text: new_string,
         }
+    }
+
+    fn prepend_to_lines<S, P>(input: S, prefix: P, skip: usize, length: usize) -> String
+    where
+        S: Into<String>,
+        P: Into<String>,
+    {
+        let prefix: String = prefix.into();
+
+        input
+            .into()
+            .lines()
+            .skip(skip)
+            .take(length)
+            .map(|line_text| format!("{}{}\n", prefix, line_text))
+            .collect::<String>()
     }
 }
 
