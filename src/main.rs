@@ -304,7 +304,7 @@ mod utils {
                                         .lines()
                                         .skip(old_line - 1)
                                         .take(change.length)
-                                        .map(|line| format!("> {}\n", line))
+                                        .map(|line| format!("< {}\n", line))
                                         .collect::<String>()
                                 )
                             }
