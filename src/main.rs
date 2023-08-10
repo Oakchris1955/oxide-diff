@@ -570,19 +570,25 @@ fn main() {
             ((dir_path, PathType::Dir(mut dir)), (file_path, PathType::File(file)))
             | ((file_path, PathType::File(file)), (dir_path, PathType::Dir(mut dir))) => {
                 if let Some(dir_equivalent) = dir.find_map(|entry| match entry {
-                    Ok(entry) => Some((
-                        entry.path(),
-                        fs::File::open(entry.path()).unwrap_or_else(|err| {
-                            custom_file_error_handler(
-                                err,
-                                format!(
-                                    "Couldn't find file {} in directory {}",
-                                    file_path.display(),
-                                    dir_path.display()
-                                ),
-                            )
-                        }),
-                    )),
+                    Ok(entry) => {
+                        if entry.file_name() == file_path.file_name().unwrap() {
+                            Some((
+                                entry.path(),
+                                fs::File::open(entry.path()).unwrap_or_else(|err| {
+                                    custom_file_error_handler(
+                                        err,
+                                        format!(
+                                            "Couldn't find file {} in directory {}",
+                                            file_path.display(),
+                                            dir_path.display()
+                                        ),
+                                    )
+                                }),
+                            ))
+                        } else {
+                            None
+                        }
+                    }
                     Err(err) => custom_file_error_handler(err, String::new()),
                 }) {
                     let mut files = [(file_path, file), dir_equivalent];
@@ -606,8 +612,13 @@ fn main() {
 
                     print!(
                         "{}",
-                        diff.output_format(&output_format, &args.original, &args.new, &args)
+                        diff.output_format(&output_format, &files[0].0, &files[1].0, &args)
                     )
+                } else {
+                    println!(
+                        "diff: {}: No such file or directory",
+                        dir_path.join(file_path.file_name().unwrap()).display()
+                    );
                 }
             }
             ((_, PathType::Dir(original)), (_, PathType::Dir(new))) => {
