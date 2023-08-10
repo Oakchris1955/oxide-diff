@@ -340,7 +340,7 @@ mod utils {
         'outer: for (original_index, original_line) in original_string.lines().enumerate() {
             for (new_index, new_line) in new_string.lines().enumerate().skip(begin_index) {
                 if original_line == new_line {
-                    begin_index = new_index;
+                    begin_index = new_index + 1;
 
                     if let Some(last_item) = subsequence_list.last() {
                         if last_item.original_line + last_item.length - 1 == original_index
