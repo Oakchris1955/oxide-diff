@@ -612,7 +612,12 @@ fn main() {
 
                     print!(
                         "{}",
-                        diff.output_format(&output_format, &files[0].0, &files[1].0, &args)
+                        diff.output_format(
+                            &output_format,
+                            &files[0].0.display(),
+                            &files[1].0.display(),
+                            &args
+                        )
                     )
                 } else {
                     println!(
