@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - "**.rs"
+      - "Cargo.toml"
 
 env:
   CARGO_TERM_COLOR: always
