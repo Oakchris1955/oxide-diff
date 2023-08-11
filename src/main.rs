@@ -589,7 +589,7 @@ fn main() {
                             None
                         }
                     }
-                    Err(err) => custom_file_error_handler(err, String::new()),
+                    Err(err) => custom_file_error_handler(err, "Unexpected IO error"),
                 }) {
                     let mut files = [(file_path, file), dir_equivalent];
                     if files[0].0.display().to_string() != args.original {
@@ -629,12 +629,16 @@ fn main() {
             ((_, PathType::Dir(original)), (_, PathType::Dir(new))) => {
                 let mut new_hashmap: HashMap<ffi::OsString, fs::DirEntry> = HashMap::new();
                 new.for_each(|entry| {
-                    let entry = entry.unwrap_or_else(|err| custom_file_error_handler(err, ""));
+                    let entry = entry.unwrap_or_else(|err| {
+                        custom_file_error_handler(err, "Unexpected IO error")
+                    });
                     new_hashmap.insert(entry.file_name(), entry);
                 });
 
                 for entry in original {
-                    let entry = entry.unwrap_or_else(|err| custom_file_error_handler(err, ""));
+                    let entry = entry.unwrap_or_else(|err| {
+                        custom_file_error_handler(err, "Unexpected IO error")
+                    });
 
                     if let Some(other_entry) = new_hashmap.remove(&entry.file_name()) {
                         fn parse_filetype(file_type: fs::FileType) -> BlankPathType {
