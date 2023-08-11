@@ -107,24 +107,37 @@ mod utils {
         }
     }
 
+    /// Represents a subsequence of common lines in both files
     #[derive(PartialEq, Debug)]
     pub struct Subsequence {
+        /// Where the subsequence begins in the original file
         pub original_line: usize,
+        /// Where the subsequence begins in the new (edited) file
         pub new_line: usize,
+        /// The length of the subsequence (in lines)
         pub length: usize,
     }
 
+    /// Represents the changes between two files-strings
     pub struct LineChanges {
+        /// A list of all [`LineChange`]s
         pub changes: Vec<LineChange>,
+        /// A list of all [`Subsequence`]s found
         pub subsequence_list: Vec<Subsequence>,
+        /// The contents of the old (original) file
         pub old_text: String,
+        // The contents of the new (edited) file
         pub new_text: String,
     }
 
+    /// Represent a change within the file
     #[derive(PartialEq, Eq, Debug, Clone)]
     pub struct LineChange {
+        /// The position of the next [`Subsequence`] within the [`LineChanges`] struct
         pub next_subsequence: usize,
+        /// The length of the change (in lines)
         pub length: usize,
+        /// The type of the change
         pub change_type: ChangeType,
     }
 
@@ -204,20 +217,28 @@ mod utils {
         where
             S: ToString,
         {
+            // Allocate an empty output String
             let mut output = String::new();
 
+            // Convert both paths to Strings
             let original_path = original_path.to_string();
             let new_path = new_path.to_string();
 
+            // Match-clause for output format
             match format {
+                // Normal (--normal) [default format]
                 OutputFormat::Normal => {
+                    // The way skip_next works is that, if it is, the next iteration of the loop will be skipped...
                     let mut skip_next = false;
+                    // Iterate through changes
                     for (index, change) in self.changes.iter().enumerate() {
+                        // ...by this clause
                         if skip_next {
                             skip_next = false;
                             continue;
                         }
 
+                        // Get the exactly previous matching subsequence for this change (or return the first subsequenc possible if not found)
                         let (old_line, new_line) = if change.next_subsequence == 0 {
                             (1, 1)
                         } else {
@@ -229,8 +250,11 @@ mod utils {
                             )
                         };
 
+                        // Try getting the next change (if any) in order to display both changes as a line replacement
                         if let Some(next_change) = self.changes.get(index + 1) {
+                            // Proceed only if both changes are behind the same subsequence
                             if change.next_subsequence == next_change.next_subsequence {
+                                // Push the change string to the output String
                                 output.push_str(&format!(
                                     "{}{}c{}{}\n{}---\n{}",
                                     old_line,
@@ -258,11 +282,13 @@ mod utils {
                                         next_change.length
                                     )
                                 ));
+                                // Make sure to skip the current and the next iteration of the loop
                                 skip_next = true;
                                 continue;
                             }
                         }
 
+                        // If the current iteration hasn't been skipped by now, push a string to the output String according to the change type
                         output.push_str(&match change.change_type {
                             ChangeType::Added => {
                                 format!(
@@ -303,7 +329,9 @@ mod utils {
                         })
                     }
                 }
+                // Brief (--brief, -q)
                 OutputFormat::Brief => {
+                    // Push a brief message to the output String only if there are any changes to the files
                     if !self.changes.is_empty() {
                         output.push_str(&format!(
                             "Files {} and {} differ\n",
@@ -313,6 +341,7 @@ mod utils {
                 }
             }
 
+            // If no changes found and the --report-identical-files (or -s) flag is present, push a brief message to the output String
             if args.report_identical_files && self.changes.is_empty() {
                 output.push_str(&format!(
                     "Files {} and {} are identical\n",
@@ -328,20 +357,28 @@ mod utils {
     where
         S: ToString,
     {
+        // Convert both string to String type
         let original_string = original_string.to_string();
         let new_string = new_string.to_string();
 
+        // Set the begin index to 0 (this makes the algorithm A TON faster, check where the begin_index variable is used)
         let mut begin_index = 0;
 
+        // Self-explanatory
         let mut subsequence_list: Vec<Subsequence> = Vec::new();
         let mut deletions: Vec<LineChange> = Vec::new();
         let mut additions: Vec<LineChange> = Vec::new();
 
+        // Loop through each line in original_string
         'outer: for (original_index, original_line) in original_string.lines().enumerate() {
+            // Inner loop to loop each line in new_string, beginning at begin_index
             for (new_index, new_line) in new_string.lines().enumerate().skip(begin_index) {
                 if original_line == new_line {
+                    // If both lines match, set the begin index to current line + 1 more, in order to skip it
                     begin_index = new_index + 1;
 
+                    // If there is a subsequence within the subsequence_list, and it ends exactly before those very lines,
+                    // this means that the current lines are part of the subsequence. Increment its length by 1 and skip outer iteration
                     if let Some(last_item) = subsequence_list.last() {
                         if last_item.original_line + last_item.length - 1 == original_index
                             && last_item.new_line + last_item.length - 1 == new_index
@@ -351,12 +388,14 @@ mod utils {
                         }
                     }
 
+                    // If not skipped, push a new subsequence, beginning at the current lines
                     subsequence_list.push(Subsequence {
                         original_line: original_index + 1,
                         new_line: new_index + 1,
                         length: 1,
                     });
 
+                    // Get the subsequence before the one appended (if any)
                     let mut last_two_subsequences = subsequence_list.iter().rev().take(2);
                     last_two_subsequences.next();
 
@@ -367,10 +406,12 @@ mod utils {
                             length: 1,
                         });
 
+                    // Check if there are any changes (additions)
                     let addition_length = new_index
                         - (before_last_subsequence.new_line + before_last_subsequence.length - 1);
 
                     if addition_length != 0 {
+                        // If yes, push them to the addition vector
                         additions.push(LineChange {
                             next_subsequence: subsequence_list.len() - 1,
                             length: addition_length,
@@ -378,17 +419,23 @@ mod utils {
                         });
                     }
 
+                    // Skip outer iteration
                     continue 'outer;
                 }
             }
 
+            // If outer iteration not skipped...
+
+            // ...and the last deletion isn't followed by a subsequence...
             if let Some(last_change) = deletions.last_mut() {
                 if last_change.next_subsequence == subsequence_list.len() {
+                    // Increment its length by 1 and skip iteration
                     last_change.length += 1;
                     continue;
                 }
             }
 
+            // Otherwise append a new deletion
             deletions.push(LineChange {
                 next_subsequence: subsequence_list.len(),
                 length: 1,
@@ -396,6 +443,7 @@ mod utils {
             })
         }
 
+        // Once done looping, make sure there aren't any changes at the end of the new file that we missed
         let new_lines_count = new_string.lines().count();
 
         if let Some(last_subsequence) = subsequence_list.last() {
@@ -416,7 +464,9 @@ mod utils {
             })
         }
 
+        // Flatten deletions and additions vectors into a single vector
         let mut changes = [deletions, additions].concat();
+        // Sort that vector
         changes.sort();
 
         LineChanges {
@@ -427,6 +477,7 @@ mod utils {
         }
     }
 
+    /// A shorthand for `input.lines().skip(n).take(l).map(|line| format!("{}{}\n", prefix, line)).collect::<String>()`
     fn prepend_to_lines<S, P>(input: S, prefix: P, skip: usize, length: usize) -> String
     where
         S: ToString,
@@ -522,8 +573,10 @@ mod tests {
 }
 
 fn main() {
+    // Parse command line arguments
     let args = Args::parse();
 
+    // A function to handle IO errors more efficiently
     fn file_error_handler<S>(error: io::Error, filename: S) -> !
     where
         S: ToString,
@@ -537,6 +590,7 @@ fn main() {
         )
     }
 
+    // A function to handle IO errors more efficiently with a custom error message
     fn custom_file_error_handler<S>(error: io::Error, message: S) -> !
     where
         S: ToString,
@@ -553,6 +607,7 @@ fn main() {
         .exit();
     }
 
+    // Figure out an output format according to passed arguments
     let output_format_options = &args.output_format;
     let (normal, brief) = (output_format_options.normal, output_format_options.brief);
 
@@ -563,12 +618,17 @@ fn main() {
         _ => unreachable!(),
     };
 
+    // Parse paths provided into a Dir or a File instance of PathType
     let (original, new) = (parse_path(&args.original), parse_path(&args.new));
 
+    // Check if both paths were parsed without raising any errors
     match (original, new) {
+        // If yes, check what kind of instance of PathType they are
         (Ok(original), Ok(new)) => match (original, new) {
+            // One of the is a Dir, the other is a File
             ((dir_path, PathType::Dir(mut dir)), (file_path, PathType::File(file)))
             | ((file_path, PathType::File(file)), (dir_path, PathType::Dir(mut dir))) => {
+                // Find a file within dir with the same filename as the file variable
                 if let Some(dir_equivalent) = dir.find_map(|entry| match entry {
                     Ok(entry) => {
                         if entry.file_name() == file_path.file_name().unwrap() {
@@ -591,14 +651,19 @@ fn main() {
                     }
                     Err(err) => custom_file_error_handler(err, "Unexpected IO error"),
                 }) {
+                    // If a match is found, put both files into an array
                     let mut files = [(file_path, file), dir_equivalent];
+
+                    // If-clause to make sure the files are matched in the order they were provided by the user
                     if files[0].0.display().to_string() != args.original {
                         files.reverse()
                     }
 
+                    // Allocate some memory for the file data
                     let mut original_string = String::new();
                     let mut new_string = String::new();
 
+                    // Read from files
                     files[0]
                         .1
                         .read_to_string(&mut original_string)
@@ -608,8 +673,10 @@ fn main() {
                         .read_to_string(&mut new_string)
                         .unwrap_or_else(|err| file_error_handler(err, files[1].0.display()));
 
+                    // Compare the files
                     let diff = utils::diff(original_string, new_string);
 
+                    // Print the comparison result
                     print!(
                         "{}",
                         diff.output_format(
@@ -620,13 +687,16 @@ fn main() {
                         )
                     )
                 } else {
+                    // If not, print a message to console and exit
                     println!(
                         "diff: {}: No such file or directory",
                         dir_path.join(file_path.file_name().unwrap()).display()
                     );
                 }
             }
+            // Both files are Dirs
             ((_, PathType::Dir(original)), (_, PathType::Dir(new))) => {
+                // Convert the new ReadDir iterator into a path-direntry hashmap
                 let mut new_hashmap: HashMap<ffi::OsString, fs::DirEntry> = HashMap::new();
                 new.for_each(|entry| {
                     let entry = entry.unwrap_or_else(|err| {
@@ -635,12 +705,16 @@ fn main() {
                     new_hashmap.insert(entry.file_name(), entry);
                 });
 
+                // Loop through the original ReadDir
                 for entry in original {
+                    // Convert from Result<DirEntry> to DirEntry
                     let entry = entry.unwrap_or_else(|err| {
                         custom_file_error_handler(err, "Unexpected IO error")
                     });
 
+                    // Try finding a matching DirEntry on the new hashmap, removing the entry if it exists
                     if let Some(other_entry) = new_hashmap.remove(&entry.file_name()) {
+                        // Function to convert FileType struct to custom enum
                         fn parse_filetype(file_type: fs::FileType) -> BlankPathType {
                             if file_type.is_file() {
                                 BlankPathType::File
@@ -653,6 +727,7 @@ fn main() {
                             }
                         }
 
+                        // Get the types of both entries using the abovementioned function
                         let entry_type = parse_filetype(entry.file_type().unwrap_or_else(|err| {
                             custom_file_error_handler(err, format!("Unexpected IO error"))
                         }));
@@ -662,11 +737,15 @@ fn main() {
                                 custom_file_error_handler(err, format!("Unexpected IO error"))
                             }));
 
+                        // Match their types
                         match (entry_type, other_entry_type) {
+                            // If both of them are files...
                             (BlankPathType::File, BlankPathType::File) => {
+                                // ...begin by allocating some memory for the file data
                                 let mut original_string = String::new();
                                 let mut new_string = String::new();
 
+                                // Open the files...
                                 let mut original_file = fs::File::open(entry.path())
                                     .unwrap_or_else(|err| {
                                         custom_file_error_handler(
@@ -682,6 +761,7 @@ fn main() {
                                         )
                                     });
 
+                                // ... and read them
                                 original_file
                                     .read_to_string(&mut original_string)
                                     .unwrap_or_else(|err| {
@@ -699,7 +779,10 @@ fn main() {
                                         )
                                     });
 
+                                // Compare the files
                                 let diff = utils::diff(original_string, new_string);
+
+                                // Print a message ONLY IF there are any changes between the 2 files
                                 if !diff.changes.is_empty() {
                                     print!(
                                         "diff {} {}\n{}",
@@ -714,16 +797,19 @@ fn main() {
                                     )
                                 }
                             }
+                            // If both of them are directories, print a message to console about this
                             (BlankPathType::Dir, BlankPathType::Dir) => println!(
                                 "Common subdirectories: {} and {}",
                                 entry.path().display(),
                                 other_entry.path().display()
                             ),
+                            // If both of them are symlinks, print a message to console about this
                             (BlankPathType::SymLink, BlankPathType::SymLink) => println!(
                                 "Common symlinks: {} and {}",
                                 entry.path().display(),
                                 other_entry.path().display()
                             ),
+                            // If they are different, print a message saying so.
                             (_, _) => {
                                 println!(
                                     "{} is a {} while {} is a {}",
@@ -735,6 +821,7 @@ fn main() {
                             }
                         }
                     } else {
+                        // If nothing found, print a message saying that the current entry only exist in the parent directory
                         println!(
                             "Only in {}: {}",
                             &args.original,
@@ -743,14 +830,18 @@ fn main() {
                     }
                 }
 
+                // For the remaining entries in the new_hashmap, say that they only exist in the new directory
                 for entry in new_hashmap {
                     println!("Only in {}: {}", &args.new, entry.0.to_string_lossy())
                 }
             }
+            // If both of them are files, the process is pretty straightforward
             ((_, PathType::File(mut original)), (_, PathType::File(mut new))) => {
+                // Allocate some memory for the file data
                 let mut original_string = String::new();
                 let mut new_string = String::new();
 
+                // Read the file contents
                 original
                     .read_to_string(&mut original_string)
                     .unwrap_or_else(|err| {
@@ -760,16 +851,20 @@ fn main() {
                     custom_file_error_handler(err, format!("Unexpected IO error"))
                 });
 
+                // Compare them
                 let diff = utils::diff(original_string, new_string);
 
+                // Print their differences
                 print!(
                     "{}",
                     diff.output_format(&output_format, &args.original, &args.new, &args)
                 )
             }
         },
+        // If any one of the arguments passed couldn't be parsed as a path, use the file_error_handler function
         (Err(err), Ok(_)) => file_error_handler(err, args.original),
         (Ok(_), Err(err)) => file_error_handler(err, args.new),
+        // If both arguments passed couldn't be parsed, returns a custom error message
         (Err(err_original), Err(err_new)) => {
             let mut cmd = Args::command();
             cmd.error(
