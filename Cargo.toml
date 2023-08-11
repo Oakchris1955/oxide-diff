@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["Oakchris1955"]
 description = "A simple diff utility written in Rust"
 edition = "2021"
+license = "MIT"
 
 
 [profile.release]
