@@ -388,36 +388,33 @@ mod utils {
                         }
                     }
 
-                    // If not skipped, push a new subsequence, beginning at the current lines
+                    // If not skipped, get the current last subsequence
+                    let last_subsequence = subsequence_list.last().unwrap_or(&Subsequence {
+                        original_line: 0,
+                        new_line: 0,
+                        length: 1,
+                    });
+
+                    // See if there are any changes (additions)...
+                    let addition_length =
+                        new_index - (last_subsequence.new_line + last_subsequence.length - 1);
+
+                    // ...by checking if the number of lines from the end of the last subsequence to the current lines aren't 0
+                    if addition_length != 0 {
+                        // If yes, push them to the addition vector
+                        additions.push(LineChange {
+                            next_subsequence: subsequence_list.len(),
+                            length: addition_length,
+                            change_type: ChangeType::Added,
+                        });
+                    }
+
+                    // Lastly, push a new subsequence, beginning at the current lines
                     subsequence_list.push(Subsequence {
                         original_line: original_index + 1,
                         new_line: new_index + 1,
                         length: 1,
                     });
-
-                    // Get the subsequence before the one appended (if any)
-                    let mut last_two_subsequences = subsequence_list.iter().rev().take(2);
-                    last_two_subsequences.next();
-
-                    let before_last_subsequence =
-                        last_two_subsequences.next().unwrap_or(&Subsequence {
-                            original_line: 0,
-                            new_line: 0,
-                            length: 1,
-                        });
-
-                    // Check if there are any changes (additions)
-                    let addition_length = new_index
-                        - (before_last_subsequence.new_line + before_last_subsequence.length - 1);
-
-                    if addition_length != 0 {
-                        // If yes, push them to the addition vector
-                        additions.push(LineChange {
-                            next_subsequence: subsequence_list.len() - 1,
-                            length: addition_length,
-                            change_type: ChangeType::Added,
-                        });
-                    }
 
                     // Skip outer iteration
                     continue 'outer;
