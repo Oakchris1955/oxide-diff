@@ -1,6 +1,6 @@
 [package]
 name = "oxide-diff"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Oakchris1955"]
 description = "A simple diff utility written in Rust"
 edition = "2021"
