@@ -41,19 +41,6 @@ impl fmt::Display for BlankPathType {
     }
 }
 
-impl PartialEq for PathType {
-    fn eq(&self, other: &Self) -> bool {
-        fn to_bool(input: &PathType) -> bool {
-            match input {
-                PathType::File(_) => false,
-                PathType::Dir(_) => true,
-            }
-        }
-
-        to_bool(self) == to_bool(other)
-    }
-}
-
 #[derive(clap::Args)]
 #[group(multiple = false)]
 struct OutputFormatOptions {
