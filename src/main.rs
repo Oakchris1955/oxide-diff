@@ -607,244 +607,268 @@ fn main() {
 
     // Check if both paths were parsed without raising any errors
     match (original, new) {
-        // If yes, check what kind of instance of PathType they are
-        (Ok(original), Ok(new)) => match (original, new) {
-            // One of the is a Dir, the other is a File
-            ((dir_path, PathType::Dir(mut dir)), (file_path, PathType::File(file)))
-            | ((file_path, PathType::File(file)), (dir_path, PathType::Dir(mut dir))) => {
-                // Find a file within dir with the same filename as the file variable
-                if let Some(dir_equivalent) = dir.find_map(|entry| match entry {
-                    Ok(entry) => {
-                        if entry.file_name() == file_path.file_name().unwrap() {
-                            Some((
-                                entry.path(),
-                                fs::File::open(entry.path()).unwrap_or_else(|err| {
-                                    custom_file_error_handler(
-                                        err,
-                                        format!(
-                                            "Couldn't find file {} in directory {}",
-                                            file_path.display(),
-                                            dir_path.display()
-                                        ),
-                                    )
-                                }),
-                            ))
-                        } else {
-                            None
-                        }
-                    }
-                    Err(err) => custom_file_error_handler(err, "Unexpected IO error"),
-                }) {
-                    // If a match is found, put both files into an array
-                    let mut files = [(file_path, file), dir_equivalent];
-
-                    // If-clause to make sure the files are matched in the order they were provided by the user
-                    if files[0].0.display().to_string() != args.original {
-                        files.reverse()
-                    }
-
-                    // Allocate some memory for the file data
-                    let mut original_string = String::new();
-                    let mut new_string = String::new();
-
-                    // Read from files
-                    files[0]
-                        .1
-                        .read_to_string(&mut original_string)
-                        .unwrap_or_else(|err| file_error_handler(err, files[0].0.display()));
-                    files[1]
-                        .1
-                        .read_to_string(&mut new_string)
-                        .unwrap_or_else(|err| file_error_handler(err, files[1].0.display()));
-
-                    // Compare the files
-                    let diff = utils::diff(original_string, new_string);
-
-                    // Print the comparison result
-                    print!(
-                        "{}",
-                        diff.output_format(
-                            &output_format,
-                            &files[0].0.display(),
-                            &files[1].0.display(),
-                            &args
-                        )
-                    )
-                } else {
-                    // If not, print a message to console and exit
-                    println!(
-                        "diff: {}: No such file or directory",
-                        dir_path.join(file_path.file_name().unwrap()).display()
-                    );
-                }
-            }
-            // Both files are Dirs
-            ((_, PathType::Dir(original)), (_, PathType::Dir(new))) => {
-                // Convert the new ReadDir iterator into a path-direntry hashmap
-                let mut new_hashmap: HashMap<ffi::OsString, fs::DirEntry> = HashMap::new();
-                new.for_each(|entry| {
-                    let entry = entry.unwrap_or_else(|err| {
-                        custom_file_error_handler(err, "Unexpected IO error")
-                    });
-                    new_hashmap.insert(entry.file_name(), entry);
-                });
-
-                // Loop through the original ReadDir
-                for entry in original {
-                    // Convert from Result<DirEntry> to DirEntry
-                    let entry = entry.unwrap_or_else(|err| {
-                        custom_file_error_handler(err, "Unexpected IO error")
-                    });
-
-                    // Try finding a matching DirEntry on the new hashmap, removing the entry if it exists
-                    if let Some(other_entry) = new_hashmap.remove(&entry.file_name()) {
-                        // Function to convert FileType struct to custom enum
-                        fn parse_filetype(file_type: fs::FileType) -> BlankPathType {
-                            if file_type.is_file() {
-                                BlankPathType::File
-                            } else if file_type.is_dir() {
-                                BlankPathType::Dir
-                            } else if file_type.is_symlink() {
-                                BlankPathType::SymLink
-                            } else {
-                                unreachable!()
-                            }
-                        }
-
-                        // Get the types of both entries using the abovementioned function
-                        let entry_type = parse_filetype(entry.file_type().unwrap_or_else(|err| {
-                            custom_file_error_handler(err, format!("Unexpected IO error"))
-                        }));
-
-                        let other_entry_type =
-                            parse_filetype(other_entry.file_type().unwrap_or_else(|err| {
-                                custom_file_error_handler(err, format!("Unexpected IO error"))
-                            }));
-
-                        // Match their types
-                        match (entry_type, other_entry_type) {
-                            // If both of them are files...
-                            (BlankPathType::File, BlankPathType::File) => {
-                                // ...begin by allocating some memory for the file data
-                                let mut original_string = String::new();
-                                let mut new_string = String::new();
-
-                                // Open the files...
-                                let mut original_file = fs::File::open(entry.path())
-                                    .unwrap_or_else(|err| {
-                                        custom_file_error_handler(
-                                            err,
-                                            format!("Unexpected IO error"),
-                                        )
-                                    });
-                                let mut new_file = fs::File::open(other_entry.path())
-                                    .unwrap_or_else(|err| {
-                                        custom_file_error_handler(
-                                            err,
-                                            format!("Unexpected IO error"),
-                                        )
-                                    });
-
-                                // ... and read them
-                                original_file
-                                    .read_to_string(&mut original_string)
-                                    .unwrap_or_else(|err| {
-                                        custom_file_error_handler(
-                                            err,
-                                            format!("Unexpected IO error"),
-                                        )
-                                    });
-                                new_file
-                                    .read_to_string(&mut new_string)
-                                    .unwrap_or_else(|err| {
-                                        custom_file_error_handler(
-                                            err,
-                                            format!("Unexpected IO error"),
-                                        )
-                                    });
-
-                                // Compare the files
-                                let diff = utils::diff(original_string, new_string);
-
-                                // Print a message ONLY IF there are any changes between the 2 files
-                                if !diff.changes.is_empty() {
-                                    print!(
-                                        "diff {} {}\n{}",
-                                        entry.path().display(),
-                                        other_entry.path().display(),
-                                        diff.output_format(
-                                            &output_format,
-                                            entry.path().display().to_string(),
-                                            other_entry.path().display().to_string(),
-                                            &args
-                                        )
-                                    )
+        // If yes, make sure that we aren't comparing a path against itself
+        (Ok(original), Ok(new)) => {
+            if original
+                .0
+                .canonicalize()
+                .unwrap_or_else(|err| custom_file_error_handler(err, "Unexpected IO error"))
+                != new
+                    .0
+                    .canonicalize()
+                    .unwrap_or_else(|err| custom_file_error_handler(err, "Unexpected IO error"))
+            {
+                // If not, check what kind of instance of PathType original and new are
+                match (original, new) {
+                    // One of the is a Dir, the other is a File
+                    ((dir_path, PathType::Dir(mut dir)), (file_path, PathType::File(file)))
+                    | ((file_path, PathType::File(file)), (dir_path, PathType::Dir(mut dir))) => {
+                        // Find a file within dir with the same filename as the file variable
+                        if let Some(dir_equivalent) = dir.find_map(|entry| match entry {
+                            Ok(entry) => {
+                                if entry.file_name() == file_path.file_name().unwrap() {
+                                    Some((
+                                        entry.path(),
+                                        fs::File::open(entry.path()).unwrap_or_else(|err| {
+                                            custom_file_error_handler(
+                                                err,
+                                                format!(
+                                                    "Couldn't find file {} in directory {}",
+                                                    file_path.display(),
+                                                    dir_path.display()
+                                                ),
+                                            )
+                                        }),
+                                    ))
+                                } else {
+                                    None
                                 }
                             }
-                            // If both of them are directories, print a message to console about this
-                            (BlankPathType::Dir, BlankPathType::Dir) => println!(
-                                "Common subdirectories: {} and {}",
-                                entry.path().display(),
-                                other_entry.path().display()
-                            ),
-                            // If both of them are symlinks, print a message to console about this
-                            (BlankPathType::SymLink, BlankPathType::SymLink) => println!(
-                                "Common symlinks: {} and {}",
-                                entry.path().display(),
-                                other_entry.path().display()
-                            ),
-                            // If they are different, print a message saying so.
-                            (_, _) => {
+                            Err(err) => custom_file_error_handler(err, "Unexpected IO error"),
+                        }) {
+                            // If a match is found, put both files into an array
+                            let mut files = [(file_path, file), dir_equivalent];
+
+                            // If-clause to make sure the files are matched in the order they were provided by the user
+                            if files[0].0.display().to_string() != args.original {
+                                files.reverse()
+                            }
+
+                            // Allocate some memory for the file data
+                            let mut original_string = String::new();
+                            let mut new_string = String::new();
+
+                            // Read from files
+                            files[0]
+                                .1
+                                .read_to_string(&mut original_string)
+                                .unwrap_or_else(|err| {
+                                    file_error_handler(err, files[0].0.display())
+                                });
+                            files[1]
+                                .1
+                                .read_to_string(&mut new_string)
+                                .unwrap_or_else(|err| {
+                                    file_error_handler(err, files[1].0.display())
+                                });
+
+                            // Compare the files
+                            let diff = utils::diff(original_string, new_string);
+
+                            // Print the comparison result
+                            print!(
+                                "{}",
+                                diff.output_format(
+                                    &output_format,
+                                    &files[0].0.display(),
+                                    &files[1].0.display(),
+                                    &args
+                                )
+                            )
+                        } else {
+                            // If not, print a message to console and exit
+                            println!(
+                                "diff: {}: No such file or directory",
+                                dir_path.join(file_path.file_name().unwrap()).display()
+                            );
+                        }
+                    }
+                    // Both files are Dirs
+                    ((_, PathType::Dir(original)), (_, PathType::Dir(new))) => {
+                        // Convert the new ReadDir iterator into a path-direntry hashmap
+                        let mut new_hashmap: HashMap<ffi::OsString, fs::DirEntry> = HashMap::new();
+                        new.for_each(|entry| {
+                            let entry = entry.unwrap_or_else(|err| {
+                                custom_file_error_handler(err, "Unexpected IO error")
+                            });
+                            new_hashmap.insert(entry.file_name(), entry);
+                        });
+
+                        // Loop through the original ReadDir
+                        for entry in original {
+                            // Convert from Result<DirEntry> to DirEntry
+                            let entry = entry.unwrap_or_else(|err| {
+                                custom_file_error_handler(err, "Unexpected IO error")
+                            });
+
+                            // Try finding a matching DirEntry on the new hashmap, removing the entry if it exists
+                            if let Some(other_entry) = new_hashmap.remove(&entry.file_name()) {
+                                // Function to convert FileType struct to custom enum
+                                fn parse_filetype(file_type: fs::FileType) -> BlankPathType {
+                                    if file_type.is_file() {
+                                        BlankPathType::File
+                                    } else if file_type.is_dir() {
+                                        BlankPathType::Dir
+                                    } else if file_type.is_symlink() {
+                                        BlankPathType::SymLink
+                                    } else {
+                                        unreachable!()
+                                    }
+                                }
+
+                                // Get the types of both entries using the abovementioned function
+                                let entry_type =
+                                    parse_filetype(entry.file_type().unwrap_or_else(|err| {
+                                        custom_file_error_handler(
+                                            err,
+                                            format!("Unexpected IO error"),
+                                        )
+                                    }));
+
+                                let other_entry_type =
+                                    parse_filetype(other_entry.file_type().unwrap_or_else(|err| {
+                                        custom_file_error_handler(
+                                            err,
+                                            format!("Unexpected IO error"),
+                                        )
+                                    }));
+
+                                // Match their types
+                                match (entry_type, other_entry_type) {
+                                    // If both of them are files...
+                                    (BlankPathType::File, BlankPathType::File) => {
+                                        // ...begin by allocating some memory for the file data
+                                        let mut original_string = String::new();
+                                        let mut new_string = String::new();
+
+                                        // Open the files...
+                                        let mut original_file = fs::File::open(entry.path())
+                                            .unwrap_or_else(|err| {
+                                                custom_file_error_handler(
+                                                    err,
+                                                    format!("Unexpected IO error"),
+                                                )
+                                            });
+                                        let mut new_file = fs::File::open(other_entry.path())
+                                            .unwrap_or_else(|err| {
+                                                custom_file_error_handler(
+                                                    err,
+                                                    format!("Unexpected IO error"),
+                                                )
+                                            });
+
+                                        // ... and read them
+                                        original_file
+                                            .read_to_string(&mut original_string)
+                                            .unwrap_or_else(|err| {
+                                                custom_file_error_handler(
+                                                    err,
+                                                    format!("Unexpected IO error"),
+                                                )
+                                            });
+                                        new_file.read_to_string(&mut new_string).unwrap_or_else(
+                                            |err| {
+                                                custom_file_error_handler(
+                                                    err,
+                                                    format!("Unexpected IO error"),
+                                                )
+                                            },
+                                        );
+
+                                        // Compare the files
+                                        let diff = utils::diff(original_string, new_string);
+
+                                        // Print a message ONLY IF there are any changes between the 2 files
+                                        if !diff.changes.is_empty() {
+                                            print!(
+                                                "diff {} {}\n{}",
+                                                entry.path().display(),
+                                                other_entry.path().display(),
+                                                diff.output_format(
+                                                    &output_format,
+                                                    entry.path().display().to_string(),
+                                                    other_entry.path().display().to_string(),
+                                                    &args
+                                                )
+                                            )
+                                        }
+                                    }
+                                    // If both of them are directories, print a message to console about this
+                                    (BlankPathType::Dir, BlankPathType::Dir) => println!(
+                                        "Common subdirectories: {} and {}",
+                                        entry.path().display(),
+                                        other_entry.path().display()
+                                    ),
+                                    // If both of them are symlinks, print a message to console about this
+                                    (BlankPathType::SymLink, BlankPathType::SymLink) => println!(
+                                        "Common symlinks: {} and {}",
+                                        entry.path().display(),
+                                        other_entry.path().display()
+                                    ),
+                                    // If they are different, print a message saying so.
+                                    (_, _) => {
+                                        println!(
+                                            "{} is a {} while {} is a {}",
+                                            entry.path().display(),
+                                            entry_type,
+                                            other_entry.path().display(),
+                                            other_entry_type
+                                        )
+                                    }
+                                }
+                            } else {
+                                // If nothing found, print a message saying that the current entry only exist in the parent directory
                                 println!(
-                                    "{} is a {} while {} is a {}",
-                                    entry.path().display(),
-                                    entry_type,
-                                    other_entry.path().display(),
-                                    other_entry_type
+                                    "Only in {}: {}",
+                                    &args.original,
+                                    entry.file_name().to_string_lossy()
                                 )
                             }
                         }
-                    } else {
-                        // If nothing found, print a message saying that the current entry only exist in the parent directory
-                        println!(
-                            "Only in {}: {}",
-                            &args.original,
-                            entry.file_name().to_string_lossy()
+
+                        // For the remaining entries in the new_hashmap, say that they only exist in the new directory
+                        for entry in new_hashmap {
+                            println!("Only in {}: {}", &args.new, entry.0.to_string_lossy())
+                        }
+                    }
+                    // If both of them are files, the process is pretty straightforward
+                    ((_, PathType::File(mut original)), (_, PathType::File(mut new))) => {
+                        // Allocate some memory for the file data
+                        let mut original_string = String::new();
+                        let mut new_string = String::new();
+
+                        // Read the file contents
+                        original
+                            .read_to_string(&mut original_string)
+                            .unwrap_or_else(|err| {
+                                custom_file_error_handler(err, format!("Unexpected IO error"))
+                            });
+                        new.read_to_string(&mut new_string).unwrap_or_else(|err| {
+                            custom_file_error_handler(err, format!("Unexpected IO error"))
+                        });
+
+                        // Compare them
+                        let diff = utils::diff(original_string, new_string);
+
+                        // Print their differences
+                        print!(
+                            "{}",
+                            diff.output_format(&output_format, &args.original, &args.new, &args)
                         )
                     }
                 }
-
-                // For the remaining entries in the new_hashmap, say that they only exist in the new directory
-                for entry in new_hashmap {
-                    println!("Only in {}: {}", &args.new, entry.0.to_string_lossy())
-                }
             }
-            // If both of them are files, the process is pretty straightforward
-            ((_, PathType::File(mut original)), (_, PathType::File(mut new))) => {
-                // Allocate some memory for the file data
-                let mut original_string = String::new();
-                let mut new_string = String::new();
-
-                // Read the file contents
-                original
-                    .read_to_string(&mut original_string)
-                    .unwrap_or_else(|err| {
-                        custom_file_error_handler(err, format!("Unexpected IO error"))
-                    });
-                new.read_to_string(&mut new_string).unwrap_or_else(|err| {
-                    custom_file_error_handler(err, format!("Unexpected IO error"))
-                });
-
-                // Compare them
-                let diff = utils::diff(original_string, new_string);
-
-                // Print their differences
-                print!(
-                    "{}",
-                    diff.output_format(&output_format, &args.original, &args.new, &args)
-                )
-            }
-        },
+        }
         // If any one of the arguments passed couldn't be parsed as a path, use the file_error_handler function
         (Err(err), Ok(_)) => file_error_handler(err, args.original),
         (Ok(_), Err(err)) => file_error_handler(err, args.new),
