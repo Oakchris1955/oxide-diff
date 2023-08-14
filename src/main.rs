@@ -1,12 +1,12 @@
 use std::collections::HashMap;
+use std::process::exit;
 use std::{
     ffi, fmt, fs,
     io::{self, Read},
     path,
 };
 
-use clap::error::ErrorKind;
-use clap::{CommandFactory, Parser};
+use clap::Parser;
 
 pub enum OutputFormat {
     Normal,
@@ -565,7 +565,7 @@ fn main() {
     where
         S: ToString,
     {
-        custom_file_error_handler(
+        custom_error_handler(
             error,
             format!(
                 "Couldn't open file {}. Check if it exists or if the path supplied is valid\n",
@@ -575,20 +575,16 @@ fn main() {
     }
 
     // A function to handle IO errors more efficiently with a custom error message
-    fn custom_file_error_handler<S>(error: io::Error, message: S) -> !
+    fn custom_error_handler<S>(error: io::Error, message: S) -> !
     where
         S: ToString,
     {
-        let mut cmd = Args::command();
-        cmd.error(
-            ErrorKind::Io,
-            format!(
-                "{}\nError message: \"{}\"",
-                message.to_string(),
-                error.to_string()
-            ),
-        )
-        .exit();
+        eprintln!(
+            "{}\nError message: \"{}\"",
+            message.to_string(),
+            error.to_string()
+        );
+        exit(2)
     }
 
     // Figure out an output format according to passed arguments
@@ -612,11 +608,11 @@ fn main() {
             if original
                 .0
                 .canonicalize()
-                .unwrap_or_else(|err| custom_file_error_handler(err, "Unexpected IO error"))
+                .unwrap_or_else(|err| custom_error_handler(err, "Unexpected IO error"))
                 != new
                     .0
                     .canonicalize()
-                    .unwrap_or_else(|err| custom_file_error_handler(err, "Unexpected IO error"))
+                    .unwrap_or_else(|err| custom_error_handler(err, "Unexpected IO error"))
             {
                 // If not, check what kind of instance of PathType original and new are
                 match (original, new) {
@@ -630,7 +626,7 @@ fn main() {
                                     Some((
                                         entry.path(),
                                         fs::File::open(entry.path()).unwrap_or_else(|err| {
-                                            custom_file_error_handler(
+                                            custom_error_handler(
                                                 err,
                                                 format!(
                                                     "Couldn't find file {} in directory {}",
@@ -644,7 +640,7 @@ fn main() {
                                     None
                                 }
                             }
-                            Err(err) => custom_file_error_handler(err, "Unexpected IO error"),
+                            Err(err) => custom_error_handler(err, "Unexpected IO error"),
                         }) {
                             // If a match is found, put both files into an array
                             let mut files = [(file_path, file), dir_equivalent];
@@ -684,13 +680,21 @@ fn main() {
                                     &files[1].0.display(),
                                     &args
                                 )
-                            )
+                            );
+
+                            // Return an appropriate status code
+                            if diff.changes.is_empty() {
+                                exit(0)
+                            } else {
+                                exit(1)
+                            }
                         } else {
                             // If not, print a message to console and exit
-                            println!(
+                            eprintln!(
                                 "diff: {}: No such file or directory",
                                 dir_path.join(file_path.file_name().unwrap()).display()
                             );
+                            exit(2)
                         }
                     }
                     // Both files are Dirs
@@ -699,16 +703,18 @@ fn main() {
                         let mut new_hashmap: HashMap<ffi::OsString, fs::DirEntry> = HashMap::new();
                         new.for_each(|entry| {
                             let entry = entry.unwrap_or_else(|err| {
-                                custom_file_error_handler(err, "Unexpected IO error")
+                                custom_error_handler(err, "Unexpected IO error")
                             });
                             new_hashmap.insert(entry.file_name(), entry);
                         });
+
+                        let mut diff_found = false;
 
                         // Loop through the original ReadDir
                         for entry in original {
                             // Convert from Result<DirEntry> to DirEntry
                             let entry = entry.unwrap_or_else(|err| {
-                                custom_file_error_handler(err, "Unexpected IO error")
+                                custom_error_handler(err, "Unexpected IO error")
                             });
 
                             // Try finding a matching DirEntry on the new hashmap, removing the entry if it exists
@@ -729,18 +735,12 @@ fn main() {
                                 // Get the types of both entries using the abovementioned function
                                 let entry_type =
                                     parse_filetype(entry.file_type().unwrap_or_else(|err| {
-                                        custom_file_error_handler(
-                                            err,
-                                            format!("Unexpected IO error"),
-                                        )
+                                        custom_error_handler(err, format!("Unexpected IO error"))
                                     }));
 
                                 let other_entry_type =
                                     parse_filetype(other_entry.file_type().unwrap_or_else(|err| {
-                                        custom_file_error_handler(
-                                            err,
-                                            format!("Unexpected IO error"),
-                                        )
+                                        custom_error_handler(err, format!("Unexpected IO error"))
                                     }));
 
                                 // Match their types
@@ -754,14 +754,14 @@ fn main() {
                                         // Open the files...
                                         let mut original_file = fs::File::open(entry.path())
                                             .unwrap_or_else(|err| {
-                                                custom_file_error_handler(
+                                                custom_error_handler(
                                                     err,
                                                     format!("Unexpected IO error"),
                                                 )
                                             });
                                         let mut new_file = fs::File::open(other_entry.path())
                                             .unwrap_or_else(|err| {
-                                                custom_file_error_handler(
+                                                custom_error_handler(
                                                     err,
                                                     format!("Unexpected IO error"),
                                                 )
@@ -771,14 +771,14 @@ fn main() {
                                         original_file
                                             .read_to_string(&mut original_string)
                                             .unwrap_or_else(|err| {
-                                                custom_file_error_handler(
+                                                custom_error_handler(
                                                     err,
                                                     format!("Unexpected IO error"),
                                                 )
                                             });
                                         new_file.read_to_string(&mut new_string).unwrap_or_else(
                                             |err| {
-                                                custom_file_error_handler(
+                                                custom_error_handler(
                                                     err,
                                                     format!("Unexpected IO error"),
                                                 )
@@ -800,7 +800,10 @@ fn main() {
                                                     other_entry.path().display().to_string(),
                                                     &args
                                                 )
-                                            )
+                                            );
+
+                                            // Also, don't forget to set the diff_found variable to true
+                                            diff_found = true;
                                         }
                                     }
                                     // If both of them are directories, print a message to console about this
@@ -823,7 +826,10 @@ fn main() {
                                             entry_type,
                                             other_entry.path().display(),
                                             other_entry_type
-                                        )
+                                        );
+
+                                        // Also, don't forget to set the diff_found variable to true
+                                        diff_found = true;
                                     }
                                 }
                             } else {
@@ -832,13 +838,27 @@ fn main() {
                                     "Only in {}: {}",
                                     &args.original,
                                     entry.file_name().to_string_lossy()
-                                )
+                                );
+
+                                // Also, don't forget to set the diff_found variable to true
+                                diff_found = true;
                             }
+                        }
+
+                        // Check if the new_hashmap is empty or not and set the diff_found variable accordingly
+                        if !new_hashmap.is_empty() {
+                            diff_found = true;
                         }
 
                         // For the remaining entries in the new_hashmap, say that they only exist in the new directory
                         for entry in new_hashmap {
                             println!("Only in {}: {}", &args.new, entry.0.to_string_lossy())
+                        }
+
+                        if diff_found {
+                            exit(1)
+                        } else {
+                            exit(0)
                         }
                     }
                     // If both of them are files, the process is pretty straightforward
@@ -851,10 +871,10 @@ fn main() {
                         original
                             .read_to_string(&mut original_string)
                             .unwrap_or_else(|err| {
-                                custom_file_error_handler(err, format!("Unexpected IO error"))
+                                custom_error_handler(err, format!("Unexpected IO error"))
                             });
                         new.read_to_string(&mut new_string).unwrap_or_else(|err| {
-                            custom_file_error_handler(err, format!("Unexpected IO error"))
+                            custom_error_handler(err, format!("Unexpected IO error"))
                         });
 
                         // Compare them
@@ -864,9 +884,19 @@ fn main() {
                         print!(
                             "{}",
                             diff.output_format(&output_format, &args.original, &args.new, &args)
-                        )
+                        );
+
+                        // Exit with an appropriate status code
+                        if diff.changes.is_empty() {
+                            exit(0)
+                        } else {
+                            exit(1)
+                        }
                     }
                 }
+            } else {
+                // If we do, exit with exit code 0, since comparing a path against itself doesn't yield any changes
+                exit(0)
             }
         }
         // If any one of the arguments passed couldn't be parsed as a path, use the file_error_handler function
@@ -874,19 +904,26 @@ fn main() {
         (Ok(_), Err(err)) => file_error_handler(err, args.new),
         // If both arguments passed couldn't be parsed, returns a custom error message
         (Err(err_original), Err(err_new)) => {
-            let mut cmd = Args::command();
-            cmd.error(
-                ErrorKind::InvalidValue,
-                format!(
+            eprintln!(
                     "Couldn't open files {} and {}. Check if they exist or if the file paths supplied are valid\n\
                     First error message: \"{}\"\nSecond error message \"{}\"",
                     args.original,
                     args.new,
                     err_original,
                     err_new
-                ),
-            )
-            .exit();
+                );
+            exit(2)
         }
+    }
+
+    // Unreachable code. The program should have exited by now.
+    // (the compiler flag below is to not trigger the "unreachable code" warning)
+    #[allow(unreachable_code)]
+    {
+        unreachable!(concat!(
+            "This should never be reached.",
+            "If you are seeing this, please immediately file an issue at Github,",
+            "containing the full error message, along with detailed replication steps"
+        ))
     }
 }
