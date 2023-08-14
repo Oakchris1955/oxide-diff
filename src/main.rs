@@ -698,7 +698,7 @@ fn main() {
                         }
                     }
                     // Both files are Dirs
-                    ((_, PathType::Dir(original)), (_, PathType::Dir(new))) => {
+                    ((original_path, PathType::Dir(original)), (new_path, PathType::Dir(new))) => {
                         // Convert the new ReadDir iterator into a path-direntry hashmap
                         let mut new_hashmap: HashMap<ffi::OsString, fs::DirEntry> = HashMap::new();
                         new.for_each(|entry| {
@@ -836,7 +836,7 @@ fn main() {
                                 // If nothing found, print a message saying that the current entry only exist in the parent directory
                                 println!(
                                     "Only in {}: {}",
-                                    &args.original,
+                                    original_path.display(),
                                     entry.file_name().to_string_lossy()
                                 );
 
@@ -852,7 +852,11 @@ fn main() {
 
                         // For the remaining entries in the new_hashmap, say that they only exist in the new directory
                         for entry in new_hashmap {
-                            println!("Only in {}: {}", &args.new, entry.0.to_string_lossy())
+                            println!(
+                                "Only in {}: {}",
+                                new_path.display(),
+                                entry.0.to_string_lossy()
+                            )
                         }
 
                         if diff_found {
@@ -862,7 +866,10 @@ fn main() {
                         }
                     }
                     // If both of them are files, the process is pretty straightforward
-                    ((_, PathType::File(mut original)), (_, PathType::File(mut new))) => {
+                    (
+                        (original_path, PathType::File(mut original)),
+                        (new_path, PathType::File(mut new)),
+                    ) => {
                         // Allocate some memory for the file data
                         let mut original_string = String::new();
                         let mut new_string = String::new();
@@ -883,7 +890,12 @@ fn main() {
                         // Print their differences
                         print!(
                             "{}",
-                            diff.output_format(&output_format, &args.original, &args.new, &args)
+                            diff.output_format(
+                                &output_format,
+                                original_path.display(),
+                                new_path.display(),
+                                &args
+                            )
                         );
 
                         // Exit with an appropriate status code
