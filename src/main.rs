@@ -54,7 +54,12 @@ struct OutputFormatOptions {
 }
 
 #[derive(Parser)]
-#[command(author, version, about)]
+#[command(
+    author,
+    version,
+    about,
+    after_help = "Exit status is 0 if inputs are the same, 1 if different, 2 if trouble."
+)]
 pub struct Args {
     #[command(flatten)]
     output_format: OutputFormatOptions,

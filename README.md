@@ -24,6 +24,8 @@ In detail:
 - If one path is a directory and the other is a file, the program will check if the directory contains a file with the same name. If yes, it will compare their contents
 - If both paths are files, the program will compare their contents
 
+The program will also return a different status code depending on the result of the comparison: 0 if inputs are the same, 1 if different, 2 if trouble. (here, "the same" means no changes detected and "different" means at least one change was found)
+
 For more info about program usage, run it with the `--help` flag
 (for those asking, no, the program currently doesn't recursively compare directories. It stops at the first directory level)
 
